@@ -1,4 +1,4 @@
-test
+https://github.com/tesseract-ocr/tesseract/wiki/Downloads/f63358fb6dbc277c0a497615d786cb2d30922bec?utm_source=chatgpt.comtest
 // ================= BACKEND (Spring Boot) ================= // Maven dependencies (pom.xml) /* <dependencies> <dependency> <groupId>org.springframework.boot</groupId> <artifactId>spring-boot-starter-web</artifactId> </dependency> <dependency> <groupId>net.sourceforge.tess4j</groupId> <artifactId>tess4j</artifactId> <version>5.4.0</version> </dependency> <dependency> <groupId>com.fasterxml.jackson.core</groupId> <artifactId>jackson-databind</artifactId> </dependency> </dependencies> */
 
 // ===== MODEL ===== class TemplateField { public String key; public double x; public double y; public double width; public double height; }
