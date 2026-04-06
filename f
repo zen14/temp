@@ -1,109 +1,201 @@
-https://github.com/tesseract-ocr/tesseract/wiki/Downloads/f63358fb6dbc277c0a497615d786cb2d30922bec?utm_source=chatgpt.comtest
-// ================= BACKEND (Spring Boot) ================= // Maven dependencies (pom.xml) /* <dependencies> <dependency> <groupId>org.springframework.boot</groupId> <artifactId>spring-boot-starter-web</artifactId> </dependency> <dependency> <groupId>net.sourceforge.tess4j</groupId> <artifactId>tess4j</artifactId> <version>5.4.0</version> </dependency> <dependency> <groupId>com.fasterxml.jackson.core</groupId> <artifactId>jackson-databind</artifactId> </dependency> </dependencies> */
+Pogledao sam tvoj link — to je jednostavan landing page za Netlify (hosting / static site) sa sekcijama tipa hero, pricing, testimonials itd. �
+netlify-home-site.netlify.app
+Napravio sam ti Angular verziju (HTML + CSS + TS) koju možeš direktno ubaciti u komponentu (npr. home.component).
+📁 STRUKTURA
 
-// ===== MODEL ===== class TemplateField { public String key; public double x; public double y; public double width; public double height; }
+home/
+ ├── home.component.html
+ ├── home.component.css
+ └── home.component.ts
+🧩 home.component.html
+HTML
+<div class="container">
 
-class Template { public Long id; public String name; public int imageWidth; public int imageHeight; public List<TemplateField> fields; }
+  <!-- HERO -->
+  <section class="hero">
+    <h1>Build, deploy & host your site</h1>
+    <p>Simple, fast and powerful static hosting</p>
+    <button (click)="onStart()">Get Started</button>
+  </section>
 
-// ===== CONTROLLER ===== @RestController @RequestMapping("/api/ocr") public class OCRController {
+  <!-- FEATURES -->
+  <section class="features">
+    <div class="feature" *ngFor="let f of features">
+      <h3>{{ f.title }}</h3>
+      <p>{{ f.desc }}</p>
+    </div>
+  </section>
 
-private Map<Long, Template> templates = new HashMap<>();
-private AtomicLong counter = new AtomicLong();
+  <!-- PRICING -->
+  <section class="pricing">
+    <div class="card" *ngFor="let p of plans">
+      <h2>{{ p.name }}</h2>
+      <h3>{{ p.price }}</h3>
+      <ul>
+        <li *ngFor="let item of p.features">{{ item }}</li>
+      </ul>
+      <button>Select</button>
+    </div>
+  </section>
 
-@PostMapping("/template")
-public Template saveTemplate(@RequestBody Template template) {
-    template.id = counter.incrementAndGet();
-    templates.put(template.id, template);
-    return template;
+  <!-- TESTIMONIALS -->
+  <section class="testimonials">
+    <div class="testimonial" *ngFor="let t of testimonials">
+      <p>"{{ t.text }}"</p>
+      <span>- {{ t.author }}</span>
+    </div>
+  </section>
+
+  <!-- NEWSLETTER -->
+  <section class="newsletter">
+    <h2>Stay updated</h2>
+    <input [(ngModel)]="email" placeholder="Enter email" />
+    <button (click)="subscribe()">Subscribe</button>
+  </section>
+
+</div>
+🎨 home.component.css
+CSS
+.container {
+  font-family: Arial, sans-serif;
+  padding: 20px;
 }
 
-@PostMapping("/extract/{templateId}")
-public Map<String, String> extract(
-        @PathVariable Long templateId,
-        @RequestParam("file") MultipartFile file) throws Exception {
+/* HERO */
+.hero {
+  text-align: center;
+  padding: 60px 20px;
+  background: #111;
+  color: white;
+}
 
-    Template template = templates.get(templateId);
-    BufferedImage image = ImageIO.read(file.getInputStream());
+.hero button {
+  margin-top: 20px;
+  padding: 10px 20px;
+  background: #00c853;
+  border: none;
+  color: white;
+  cursor: pointer;
+}
 
-    Tesseract tesseract = new Tesseract();
-    tesseract.setDatapath("./tessdata");
+/* FEATURES */
+.features {
+  display: flex;
+  justify-content: space-around;
+  margin: 40px 0;
+}
 
-    Map<String, String> result = new HashMap<>();
+.feature {
+  width: 30%;
+  text-align: center;
+}
 
-    for (TemplateField field : template.fields) {
-        int x = (int)(field.x * image.getWidth());
-        int y = (int)(field.y * image.getHeight());
-        int w = (int)(field.width * image.getWidth());
-        int h = (int)(field.height * image.getHeight());
+/* PRICING */
+.pricing {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
 
-        BufferedImage sub = image.getSubimage(x, y, w, h);
-        String text = tesseract.doOCR(sub);
+.card {
+  border: 1px solid #ddd;
+  padding: 20px;
+  width: 250px;
+  text-align: center;
+}
 
-        result.put(field.key, text.trim());
+.card button {
+  margin-top: 10px;
+  padding: 8px 15px;
+  background: black;
+  color: white;
+}
+
+/* TESTIMONIALS */
+.testimonials {
+  margin: 40px 0;
+  text-align: center;
+}
+
+.testimonial {
+  margin-bottom: 20px;
+}
+
+/* NEWSLETTER */
+.newsletter {
+  text-align: center;
+}
+
+.newsletter input {
+  padding: 10px;
+  width: 250px;
+  margin-right: 10px;
+}
+⚙️ home.component.ts
+TypeScript
+import { Component } from '@angular/core';
+
+@Component({
+  selector: 'app-home',
+  templateUrl: './home.component.html',
+  styleUrls: ['./home.component.css']
+})
+export class HomeComponent {
+
+  email: string = '';
+
+  features = [
+    { title: 'Fast Hosting', desc: 'Global CDN for fast delivery' },
+    { title: 'Continuous Deploy', desc: 'Auto deploy from Git' },
+    { title: 'Secure', desc: 'SSL included by default' }
+  ];
+
+  plans = [
+    {
+      name: 'Free',
+      price: '$0',
+      features: ['100MB Storage', '1GB Bandwidth', 'Basic Support']
+    },
+    {
+      name: 'Basic',
+      price: '$9/month',
+      features: ['1GB Storage', '100GB Bandwidth', 'SSL']
+    },
+    {
+      name: 'Pro',
+      price: '$29/month',
+      features: ['100GB Storage', '1TB Bandwidth', 'Premium Support']
     }
+  ];
 
-    return result;
+  testimonials = [
+    { text: 'Amazing platform for developers!', author: 'CTO, Company' },
+    { text: 'Saved us tons of time.', author: 'Frontend Lead' }
+  ];
+
+  onStart() {
+    alert('Getting started...');
+  }
+
+  subscribe() {
+    console.log('Subscribed:', this.email);
+    alert('Subscribed with ' + this.email);
+    this.email = '';
+  }
 }
+🔥 BONUS (bitno)
+Ako koristiš ngModel, dodaj u app.module.ts:
+TypeScript
+import { FormsModule } from '@angular/forms';
 
-}
-
-// ================= FRONTEND (Angular) ================= // Install fabric.js // npm install fabric
-
-// ===== COMPONENT ===== import { Component, ViewChild, ElementRef } from '@angular/core'; import { fabric } from 'fabric'; import axios from 'axios';
-
-@Component({ selector: 'app-ocr', template: <input type="file" (change)="onUpload($event)"> <canvas #canvas width="800" height="600"></canvas> <button (click)="saveTemplate()">Save Template</button> }) export class OCRComponent {
-
-@ViewChild('canvas', { static: true }) canvasRef!: ElementRef; canvas!: fabric.Canvas; fields: any[] = [];
-
-ngOnInit() { this.canvas = new fabric.Canvas(this.canvasRef.nativeElement);
-
-this.canvas.on('mouse:down', (o: any) => {
-  const pointer = this.canvas.getPointer(o.e);
-
-  const rect = new fabric.Rect({
-    left: pointer.x,
-    top: pointer.y,
-    width: 100,
-    height: 50,
-    fill: 'rgba(0,0,255,0.3)'
-  });
-
-  this.canvas.add(rect);
-
-  const key = prompt('Enter key:');
-
-  this.fields.push({
-    key,
-    x: rect.left! / this.canvas.width!,
-    y: rect.top! / this.canvas.height!,
-    width: rect.width! / this.canvas.width!,
-    height: rect.height! / this.canvas.height!
-  });
-});
-
-}
-
-onUpload(event: any) { const file = event.target.files[0]; const reader = new FileReader();
-
-reader.onload = (e: any) => {
-  fabric.Image.fromURL(e.target.result, (img) => {
-    this.canvas.setBackgroundImage(img, this.canvas.renderAll.bind(this.canvas), {
-      scaleX: this.canvas.width! / img.width!,
-      scaleY: this.canvas.height! / img.height!
-    });
-  });
-};
-
-reader.readAsDataURL(file);
-
-}
-
-async saveTemplate() { await axios.post('http://localhost:8080/api/ocr/template', { name: 'test-template', imageWidth: this.canvas.width, imageHeight: this.canvas.height, fields: this.fields });
-
-alert('Saved!');
-
-} }
-
-// ===== EXTRACT USAGE ===== // Example (Angular service or button) async extract(file: File, templateId: number) { const formData = new FormData(); formData.append('file', file);
-
-const res = await axios.post(http://localhost:8080/api/ocr/extract/${templateId}, formData); console.log(res.data); }
+@NgModule({
+  imports: [FormsModule]
+})
+Ako želiš upgrade 🚀
+Mogu ti ovo dodatno:
+�⁠responsive (mobile ready)
+�⁠Angular Material UI
+�⁠routing (više stranica)
+�⁠backend (Spring Boot kao što radiš)
+ili �⁠1:1 pixel-perfect kopiju sajta
+Samo reci 👍
