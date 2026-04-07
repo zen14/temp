@@ -1,3 +1,51 @@
+
+private void readCard(CardTerminal terminal) {
+    try {
+
+        Card card = terminal.connect("T=CL");
+
+        CardService cs = new TerminalCardService(card);
+        cs.open();
+
+        PassportService ps = new PassportService(
+                cs,
+                PassportService.NORMAL_MAX_TRANCEIVE_LENGTH,
+                PassportService.DEFAULT_MAX_BLOCKSIZE,
+                false,
+                false
+        );
+
+        ps.open();
+
+        System.out.println("🔐 Pokrećem PACE...");
+
+        PACEKeySpec paceKey = PACEKeySpec.createCANKey(CAN);
+
+        ps.doPACE(
+                paceKey,
+                null,
+                PassportService.PACE_MODE
+        );
+
+        System.out.println("✅ PACE uspješan");
+
+        ps.sendSelectApplet(false);
+
+        InputStream dg1Stream = ps.getInputStream(PassportService.EF_DG1);
+        DG1File dg1 = new DG1File(dg1Stream);
+
+        MRZInfo mrz = dg1.getMRZInfo();
+
+        System.out.println("📄 MRZ:");
+        System.out.println(mrz.toString());
+
+    } catch (Exception e) {
+        System.out.println("❌ Greška:");
+        e.printStackTrace();
+    }
+}
+
+
 import org.jmrtd.*;
 import org.jmrtd.lds.icao.DG1File;
 import org.jmrtd.lds.MRZInfo;
