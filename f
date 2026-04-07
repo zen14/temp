@@ -1,3 +1,150 @@
+import org.jmrtd.*;
+import org.jmrtd.lds.icao.DG1File;
+import org.jmrtd.lds.icao.MRZInfo;
+
+import javax.smartcardio.*;
+import java.io.InputStream;
+import java.security.Security;
+import java.util.List;
+
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import net.sf.scuba.smartcards.*;
+
+public class ReadEIDFixed {
+
+    private static final String CAN = "123456"; // <- tvoj CAN
+
+    // Ako PACE faila, BAC treba MRZ podatke:
+    private static final String DOC_NUMBER = "XXXXXXXX"; // <- upiši broj dokumenta
+    private static final String DOB = "YYMMDD";          // <- datum rođenja
+    private static final String DOE = "YYMMDD";          // <- datum isteka
+
+    public static void main(String[] args) {
+        Security.addProvider(new BouncyCastleProvider());
+        new ReadEIDFixed().start();
+    }
+
+    public void start() {
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+
+            while (true) {
+
+                List<CardTerminal> terminals = factory.terminals().list();
+
+                for (CardTerminal terminal : terminals) {
+
+                    if (terminal.isCardPresent()) {
+
+                        System.out.println("📇 Kartica: " + terminal.getName());
+
+                        readCard(terminal);
+
+                        while (terminal.isCardPresent()) {
+                            Thread.sleep(500);
+                        }
+
+                        System.out.println("📤 Kartica uklonjena\n");
+                    }
+                }
+
+                Thread.sleep(500);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void readCard(CardTerminal terminal) {
+
+        try {
+            // 1. CONNECT
+            Card card = terminal.connect("T=CL");
+
+            System.out.println("ATR: " + card.getATR());
+
+            // 2. WRAP CARD -> CardService (ISPRAVNO)
+            CardService cs = CardService.getInstance(terminal);
+            cs.open();
+
+            PassportService ps = new PassportService(
+                    cs,
+                    PassportService.NORMAL_MAX_TRANCEIVE_LENGTH,
+                    PassportService.DEFAULT_MAX_BLOCKSIZE,
+                    false,
+                    false
+            );
+
+            ps.open();
+
+            boolean success = false;
+
+            // =========================
+            // 🔐 3. PACE ATTEMPT
+            // =========================
+            try {
+                System.out.println("🔐 Pokušavam PACE...");
+
+                PACEKeySpec paceKey = PACEKeySpec.createCANKey(CAN);
+
+                ps.doPACE(
+                        paceKey,
+                        null,
+                        PassportService.PACE_MODE
+                );
+
+                System.out.println("✅ PACE uspješan");
+                success = true;
+
+            } catch (Exception e) {
+                System.out.println("⚠️ PACE ne radi → prelazim na BAC");
+            }
+
+            // =========================
+            // 🔐 4. BAC FALLBACK
+            // =========================
+            if (!success) {
+
+                BACKeySpec bacKey = new BACKeySpec(
+                        DOC_NUMBER,
+                        DOB,
+                        DOE
+                );
+
+                ps.doBAC(bacKey);
+
+                System.out.println("✅ BAC uspješan");
+            }
+
+            // 5. SELECT APPLET
+            ps.sendSelectApplet(false);
+
+            // 6. READ DG1
+            InputStream dg1Stream = ps.getInputStream(PassportService.EF_DG1);
+
+            DG1File dg1 = new DG1File(dg1Stream);
+
+            MRZInfo mrz = dg1.getMRZInfo();
+
+            System.out.println("📄 MRZ:");
+            System.out.println("Document: " + mrz.getDocumentNumber());
+            System.out.println("DOB: " + mrz.getDateOfBirth());
+            System.out.println("DOE: " + mrz.getDateOfExpiry());
+            System.out.println("Nationality: " + mrz.getNationality());
+            System.out.println("Name: " + mrz.getNames());
+
+        } catch (Exception e) {
+            System.out.println("❌ Greška:");
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+
+
 private void readCard(CardTerminal terminal) {
     try {
 
