@@ -1,3 +1,25 @@
+
+<dependencies>
+    <dependency>
+        <groupId>org.jmrtd</groupId>
+        <artifactId>jmrtd</artifactId>
+        <version>0.7.42</version>
+    </dependency>
+</dependencies>
+<dependencies>
+    <dependency>
+        <groupId>org.jmrtd</groupId>
+        <artifactId>jmrtd</artifactId>
+        <version>0.7.42</version>
+    </dependency>
+
+    <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcprov-jdk18on</artifactId>
+        <version>1.78</version>
+    </dependency>
+</dependencies>
+
 import javax.smartcardio.*;
 import java.util.List;
 
