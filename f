@@ -1,3 +1,115 @@
+import org.jmrtd.*;
+import org.jmrtd.lds.icao.DG1File;
+import org.jmrtd.lds.icao.MRZInfo;
+
+import javax.smartcardio.*;
+import java.io.InputStream;
+import java.security.Security;
+import java.util.List;
+
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import net.sf.scuba.smartcards.*;
+
+public class ReadEIDFixed {
+
+    private static final String CAN = "123456";
+
+    private static final String DOC_NUMBER = "XXXXXXXX";
+    private static final String DOB = "YYMMDD";
+    private static final String DOE = "YYMMDD";
+
+    public static void main(String[] args) {
+        Security.addProvider(new BouncyCastleProvider());
+        new ReadEIDFixed().start();
+    }
+
+    public void start() {
+        try {
+
+            TerminalFactory factory = TerminalFactory.getDefault();
+
+            while (true) {
+
+                for (CardTerminal terminal : factory.terminals().list()) {
+
+                    if (terminal.isCardPresent()) {
+                        System.out.println("📇 Kartica: " + terminal.getName());
+                        readCard(terminal);
+                    }
+                }
+
+                Thread.sleep(500);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void readCard(CardTerminal terminal) {
+
+        try {
+
+            CardService cs = CardService.getInstance(terminal);
+            cs.open();
+
+            PassportService ps = new PassportService(
+                    cs,
+                    PassportService.NORMAL_MAX_TRANCEIVE_LENGTH,
+                    PassportService.DEFAULT_MAX_BLOCKSIZE,
+                    false,
+                    false
+            );
+
+            ps.open();
+
+            boolean ok = false;
+
+            // 🔐 PACE
+            try {
+                System.out.println("🔐 PACE...");
+
+                PACEKeySpec key = PACEKeySpec.createCANKey(CAN);
+
+                ps.doPACE(key, 12);
+
+                System.out.println("✅ PACE OK");
+                ok = true;
+
+            } catch (Exception e) {
+                System.out.println("⚠️ PACE FAIL → BAC");
+            }
+
+            // 🔐 BAC (FIXED IMPORT)
+            if (!ok) {
+
+                BACKey bacKey = new BACKey(DOC_NUMBER, DOB, DOE);
+
+                ps.doBAC(bacKey);
+
+                System.out.println("✅ BAC OK");
+            }
+
+            ps.sendSelectApplet(false);
+
+            InputStream dg1Stream = ps.getInputStream(PassportService.EF_DG1);
+
+            DG1File dg1 = new DG1File(dg1Stream);
+
+            MRZInfo mrz = dg1.getMRZInfo();
+
+            System.out.println("📄 MRZ:");
+            System.out.println(mrz);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+
 
 import org.jmrtd.*;
 import org.jmrtd.lds.icao.DG1File;
