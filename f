@@ -1,4 +1,110 @@
 import org.jmrtd.*;
+import org.jmrtd.lds.icao.DG1File;
+import org.jmrtd.lds.MRZInfo;
+
+import javax.smartcardio.*;
+import java.io.InputStream;
+import java.security.Security;
+import java.util.List;
+
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import net.sf.scuba.smartcards.*;
+
+public class ReadEIDFixed {
+
+    private static final String CAN = "123456"; // <-- stavi svoj CAN
+
+    public static void main(String[] args) {
+        Security.addProvider(new BouncyCastleProvider());
+        new ReadEIDFixed().start();
+    }
+
+    public void start() {
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+
+            while (true) {
+                List<CardTerminal> terminals = factory.terminals().list();
+
+                for (CardTerminal terminal : terminals) {
+
+                    if (terminal.isCardPresent()) {
+                        System.out.println("📇 Kartica: " + terminal.getName());
+
+                        readCard(terminal);
+
+                        while (terminal.isCardPresent()) {
+                            Thread.sleep(500);
+                        }
+
+                        System.out.println("📤 Kartica uklonjena\n");
+                    }
+                }
+
+                Thread.sleep(500);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void readCard(CardTerminal terminal) {
+        try {
+            Card card = terminal.connect("T=CL");
+
+            // Wrap u Scuba CardService
+            CardService cs = CardService.getInstance(card);
+            cs.open();
+
+            PassportService ps = new PassportService(
+                    cs,
+                    PassportService.NORMAL_MAX_TRANCEIVE_LENGTH,
+                    PassportService.DEFAULT_MAX_BLOCKSIZE,
+                    false,
+                    false
+            );
+
+            ps.open();
+
+            System.out.println("🔐 Pokrećem PACE...");
+
+            // PACE key sa CAN
+            PACEKeySpec paceKey = PACEKeySpec.createCANKey(CAN);
+
+            // PACE (novi API)
+            ps.doPACE(
+                    paceKey,
+                    null,
+                    PassportService.PACE_MODE
+            );
+
+            System.out.println("✅ PACE uspješan");
+
+            ps.sendSelectApplet(false);
+
+            // DG1 čitanje
+            InputStream dg1Stream = ps.getInputStream(PassportService.EF_DG1);
+            DG1File dg1 = new DG1File(dg1Stream);
+
+            MRZInfo mrz = dg1.getMRZInfo();
+
+            System.out.println("📄 MRZ:");
+            System.out.println(mrz.toString());
+
+        } catch (Exception e) {
+            System.out.println("❌ Greška:");
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+
+
+
+import org.jmrtd.*;
 import org.jmrtd.lds.*;
 import org.jmrtd.lds.icao.DG1File;
 
