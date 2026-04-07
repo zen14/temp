@@ -1,4 +1,114 @@
+import javax.smartcardio.*;
+import java.util.List;
 
+public class SmartCardFullListener {
+
+    public static void main(String[] args) {
+        new SmartCardFullListener().start();
+    }
+
+    public void start() {
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+
+            while (true) {
+
+                List<CardTerminal> terminals = factory.terminals().list();
+
+                if (terminals.isEmpty()) {
+                    System.out.println("❌ Nema readera...");
+                    Thread.sleep(2000);
+                    continue;
+                }
+
+                // Ispiši sve readere
+                System.out.println("\n📡 Dostupni readeri:");
+                for (int i = 0; i < terminals.size(); i++) {
+                    System.out.println(i + ": " + terminals.get(i).getName());
+                }
+
+                // Prođi kroz sve readere (kontakt + NFC)
+                for (CardTerminal terminal : terminals) {
+
+                    try {
+                        if (terminal.isCardPresent()) {
+                            System.out.println("\n📇 Kartica detektovana na: " + terminal.getName());
+
+                            processCard(terminal);
+
+                            // čekaj da se kartica makne
+                            while (terminal.isCardPresent()) {
+                                Thread.sleep(500);
+                            }
+
+                            System.out.println("📤 Kartica uklonjena\n");
+                        }
+
+                    } catch (Exception e) {
+                        System.out.println("⚠️ Greška na readeru: " + terminal.getName());
+                    }
+                }
+
+                Thread.sleep(500);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void processCard(CardTerminal terminal) {
+        Card card = null;
+
+        try {
+            // pokušaj različite protokole (bitno za NFC!)
+            String[] protocols = {"T=0", "T=1", "T=CL", "*"};
+
+            for (String protocol : protocols) {
+                try {
+                    card = terminal.connect(protocol);
+                    System.out.println("🔗 Spojen preko protokola: " + protocol);
+                    break;
+                } catch (Exception ignored) {}
+            }
+
+            if (card == null) {
+                System.out.println("❌ Ne mogu se spojiti na karticu");
+                return;
+            }
+
+            CardChannel channel = card.getBasicChannel();
+
+            System.out.println("📨 Slanje test APDU komande...");
+
+            byte[] command = new byte[]{
+                    (byte) 0x00, (byte) 0xA4, (byte) 0x04, (byte) 0x00, (byte) 0x00
+            };
+
+            ResponseAPDU response = channel.transmit(new CommandAPDU(command));
+
+            System.out.println("📥 Response: " + bytesToHex(response.getBytes()));
+
+        } catch (Exception e) {
+            System.out.println("❌ Greška pri radu s karticom");
+            e.printStackTrace();
+        } finally {
+            try {
+                if (card != null) {
+                    card.disconnect(false);
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString();
+    }
+}
 <dependencies>
     <dependency>
         <groupId>org.jmrtd</groupId>
