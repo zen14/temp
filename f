@@ -1,3 +1,88 @@
+import org.jmrtd.*;
+import org.jmrtd.lds.*;
+import org.jmrtd.lds.icao.DG1File;
+
+import javax.smartcardio.*;
+import java.io.InputStream;
+import java.security.Security;
+import java.util.List;
+
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+
+public class ReadEID {
+
+    private static final String CAN = "123456"; // <-- OVDJE STAVI SVOJ CAN
+
+    public static void main(String[] args) {
+        Security.addProvider(new BouncyCastleProvider());
+        new ReadEID().start();
+    }
+
+    public void start() {
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+
+            while (true) {
+                List<CardTerminal> terminals = factory.terminals().list();
+
+                for (CardTerminal terminal : terminals) {
+
+                    if (terminal.isCardPresent()) {
+                        System.out.println("📇 Kartica detektovana: " + terminal.getName());
+
+                        readCard(terminal);
+
+                        while (terminal.isCardPresent()) {
+                            Thread.sleep(500);
+                        }
+
+                        System.out.println("📤 Kartica uklonjena\n");
+                    }
+                }
+
+                Thread.sleep(500);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void readCard(CardTerminal terminal) {
+        try {
+            Card card = terminal.connect("T=CL");
+            CardService service = CardService.getInstance(card);
+            service.open();
+
+            PassportService ps = new PassportService(service);
+            ps.open();
+
+            System.out.println("🔐 Pokrećem PACE...");
+
+            // PACE sa CAN
+            BACKeySpec paceKey = new BACKey(CAN, "", "");
+
+            ps.doPACE(paceKey, null);
+
+            System.out.println("✅ PACE uspješan!");
+
+            ps.sendSelectApplet(false);
+
+            // Čitanje DG1 (osnovni podaci)
+            InputStream dg1Stream = ps.getInputStream(PassportService.EF_DG1);
+            DG1File dg1 = new DG1File(dg1Stream);
+
+            System.out.println("📄 DG1 sadržaj:");
+            System.out.println(dg1.getMRZInfo().toString());
+
+        } catch (Exception e) {
+            System.out.println("❌ Greška pri čitanju kartice");
+            e.printStackTrace();
+        }
+    }
+}
+
+
 import javax.smartcardio.*;
 import java.util.List;
 
