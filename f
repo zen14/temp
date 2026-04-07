@@ -12,6 +12,152 @@ import net.sf.scuba.smartcards.*;
 
 public class ReadEIDFixed {
 
+    // 🔑 CAN (ako PACE radi)
+    private static final String CAN = "123456";
+
+    // 📄 BAC fallback podaci (OBAVEZNO popuniti)
+    private static final String DOC_NUMBER = "XXXXXXXX";
+    private static final String DOB = "YYMMDD";
+    private static final String DOE = "YYMMDD";
+
+    public static void main(String[] args) {
+        Security.addProvider(new BouncyCastleProvider());
+        new ReadEIDFixed().start();
+    }
+
+    public void start() {
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+
+            while (true) {
+
+                List<CardTerminal> terminals = factory.terminals().list();
+
+                for (CardTerminal terminal : terminals) {
+
+                    if (terminal.isCardPresent()) {
+
+                        System.out.println("📇 Kartica detektovana: " + terminal.getName());
+
+                        readCard(terminal);
+
+                        while (terminal.isCardPresent()) {
+                            Thread.sleep(500);
+                        }
+
+                        System.out.println("📤 Kartica uklonjena\n");
+                    }
+                }
+
+                Thread.sleep(500);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void readCard(CardTerminal terminal) {
+
+        try {
+
+            // 1. CONNECT
+            Card card = terminal.connect("T=CL");
+
+            System.out.println("ATR: " + card.getATR());
+
+            // 2. WRAP U CARD SERVICE (ISPRAVNO ZA TVOJU VERZIJU)
+            CardService cs = CardService.getInstance(terminal);
+            cs.open();
+
+            PassportService ps = new PassportService(
+                    cs,
+                    PassportService.NORMAL_MAX_TRANCEIVE_LENGTH,
+                    PassportService.DEFAULT_MAX_BLOCKSIZE,
+                    false,
+                    false
+            );
+
+            ps.open();
+
+            boolean authenticated = false;
+
+            // =========================
+            // 🔐 PACE (TRY)
+            // =========================
+            try {
+                System.out.println("🔐 Pokušavam PACE...");
+
+                PACEKeySpec paceKey = PACEKeySpec.createCANKey(CAN);
+
+                ps.doPACE(paceKey, null); // ✔ FIX (bez PACE_MODE)
+
+                System.out.println("✅ PACE uspješan");
+                authenticated = true;
+
+            } catch (Exception e) {
+                System.out.println("⚠️ PACE ne radi → prelazim na BAC");
+            }
+
+            // =========================
+            // 🔐 BAC FALLBACK
+            // =========================
+            if (!authenticated) {
+
+                BACKeySpec bacKey = new BACKeySpec(
+                        DOC_NUMBER,
+                        DOB,
+                        DOE
+                );
+
+                ps.doBAC(bacKey);
+
+                System.out.println("✅ BAC uspješan");
+            }
+
+            // 3. SELECT APPLET
+            ps.sendSelectApplet(false);
+
+            // 4. READ DG1 (MRZ)
+            InputStream dg1Stream = ps.getInputStream(PassportService.EF_DG1);
+
+            DG1File dg1 = new DG1File(dg1Stream);
+
+            MRZInfo mrz = dg1.getMRZInfo();
+
+            System.out.println("\n📄 MRZ PODACI:");
+            System.out.println("Document: " + mrz.getDocumentNumber());
+            System.out.println("DOB: " + mrz.getDateOfBirth());
+            System.out.println("DOE: " + mrz.getDateOfExpiry());
+            System.out.println("Nationality: " + mrz.getNationality());
+            System.out.println("Names: " + mrz.getNames());
+
+        } catch (Exception e) {
+            System.out.println("❌ Greška pri čitanju kartice:");
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+
+
+
+import org.jmrtd.*;
+import org.jmrtd.lds.icao.DG1File;
+import org.jmrtd.lds.icao.MRZInfo;
+
+import javax.smartcardio.*;
+import java.io.InputStream;
+import java.security.Security;
+import java.util.List;
+
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import net.sf.scuba.smartcards.*;
+
+public class ReadEIDFixed {
+
     private static final String CAN = "123456"; // <- tvoj CAN
 
     // Ako PACE faila, BAC treba MRZ podatke:
