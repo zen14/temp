@@ -1,3 +1,78 @@
+
+import javax.smartcardio.*;
+import java.util.List;
+
+public class NFCReader {
+
+    public static void main(String[] args) throws Exception {
+
+        TerminalFactory factory = TerminalFactory.getDefault();
+        List<CardTerminal> terminals = factory.terminals().list();
+
+        if (terminals.isEmpty()) {
+            System.out.println("❌ Nema readera");
+            return;
+        }
+
+        CardTerminal terminal = terminals.get(0);
+
+        System.out.println("📡 Reader: " + terminal.getName());
+        System.out.println("📥 Čekam NFC karticu...");
+
+        while (true) {
+
+            if (terminal.waitForCardPresent(1000)) {
+
+                try {
+                    System.out.println("📶 NFC kartica detektovana!");
+
+                    // 🔥 KLJUČNO: T=CL
+                    Card card = terminal.connect("T=CL");
+
+                    System.out.println("ATR: " + bytesToHex(card.getATR().getBytes()));
+
+                    CardChannel channel = card.getBasicChannel();
+
+                    // TEST APDU
+                    CommandAPDU cmd = new CommandAPDU(
+                            0x00, 0x84, 0x00, 0x00, 0x08
+                    );
+
+                    ResponseAPDU resp = channel.transmit(cmd);
+
+                    System.out.println("SW: " + Integer.toHexString(resp.getSW()));
+                    System.out.println("DATA: " + bytesToHex(resp.getData()));
+
+                    card.disconnect(false);
+
+                } catch (Exception e) {
+                    System.out.println("❌ NFC greška:");
+                    e.printStackTrace();
+                }
+
+                while (terminal.isCardPresent()) {
+                    Thread.sleep(500);
+                }
+
+                System.out.println("\n📤 Kartica uklonjena");
+                System.out.println("📥 Čekam NFC karticu...");
+            }
+        }
+    }
+
+    public static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString();
+    }
+}
+
+
+
+
+
 import javax.smartcardio.*;
 import java.util.List;
 
