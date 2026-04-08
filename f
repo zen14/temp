@@ -1,3 +1,87 @@
+===========================================
+  BiH eID Explorer v3  |  BAEID2.0
+===========================================
+
+Čitač: HID Global OMNIKEY 5422CL Smartcard Reader 0
+ATR: 3B 88 80 01 42 41 45 49 44 32 2E 30 6E
+
+========== TEST 1: SELECT MF ==========
+SELECT MF P2=00 -> SW=9000 data=[]
+SELECT MF P2=04 -> SW=9000 data=[]
+SELECT MF P2=0C -> SW=9000 data=[]
+SELECT MF bez Lc -> SW=6A80
+
+========== TEST 2: BRUTE-FORCE FILE IDs ==========
+  *** EF 2F00 P1=02 P2=00 -> SW=9000 []
+      DATA(18): 61 10 4F 07 A0 00 00 02 47 10 01 50 05 65 4D 52 54 44
+      TEXT: a.O.....G..P.eMRTD
+      TLV Tag=0061 [?]: 4F 07 A0 00 00 02 47 10 01 50 05 65 4D 52 54 44
+      Snimljeno: ef_2F00.bin
+  *** EF 2F00 P1=02 P2=0C -> SW=9000 []
+      DATA(18): 61 10 4F 07 A0 00 00 02 47 10 01 50 05 65 4D 52 54 44
+      TEXT: a.O.....G..P.eMRTD
+      TLV Tag=0061 [?]: 4F 07 A0 00 00 02 47 10 01 50 05 65 4D 52 54 44
+      Snimljeno: ef_2F00.bin
+  *** EF 2F00 P1=00 P2=00 -> SW=9000 []
+      DATA(18): 61 10 4F 07 A0 00 00 02 47 10 01 50 05 65 4D 52 54 44
+      TEXT: a.O.....G..P.eMRTD
+      TLV Tag=0061 [?]: 4F 07 A0 00 00 02 47 10 01 50 05 65 4D 52 54 44
+      Snimljeno: ef_2F00.bin
+  *** EF 2F00 P1=00 P2=0C -> SW=9000 []
+      DATA(18): 61 10 4F 07 A0 00 00 02 47 10 01 50 05 65 4D 52 54 44
+      TEXT: a.O.....G..P.eMRTD
+      TLV Tag=0061 [?]: 4F 07 A0 00 00 02 47 10 01 50 05 65 4D 52 54 44
+      Snimljeno: ef_2F00.bin
+  *** EF 2F01 P1=02 P2=00 -> SW=9000 []
+      DATA(26): 43 01 99 44 05 00 B0 2F 01 00 47 03 84 21 E0 7F 66 08 02 02 02 40 02 02 02 40
+      TEXT: C..D.../..G..!..f....@...@
+      TLV Tag=0043 [?]: 99
+      TLV Tag=0044 [?]: 00 B0 2F 01 00
+      TLV Tag=0047 [?]: 84 21 E0
+      TLV Tag=7F66 [?]: 02 02 02 40 02 02 02 40
+      Snimljeno: ef_2F01.bin
+  *** EF 2F01 P1=02 P2=0C -> SW=9000 []
+      DATA(26): 43 01 99 44 05 00 B0 2F 01 00 47 03 84 21 E0 7F 66 08 02 02 02 40 02 02 02 40
+      TEXT: C..D.../..G..!..f....@...@
+      TLV Tag=0043 [?]: 99
+      TLV Tag=0044 [?]: 00 B0 2F 01 00
+      TLV Tag=0047 [?]: 84 21 E0
+      TLV Tag=7F66 [?]: 02 02 02 40 02 02 02 40
+      Snimljeno: ef_2F01.bin
+  *** EF 2F01 P1=00 P2=00 -> SW=9000 []
+      DATA(26): 43 01 99 44 05 00 B0 2F 01 00 47 03 84 21 E0 7F 66 08 02 02 02 40 02 02 02 40
+      TEXT: C..D.../..G..!..f....@...@
+      TLV Tag=0043 [?]: 99
+      TLV Tag=0044 [?]: 00 B0 2F 01 00
+      TLV Tag=0047 [?]: 84 21 E0
+      TLV Tag=7F66 [?]: 02 02 02 40 02 02 02 40
+      Snimljeno: ef_2F01.bin
+  *** EF 2F01 P1=00 P2=0C -> SW=9000 []
+      DATA(26): 43 01 99 44 05 00 B0 2F 01 00 47 03 84 21 E0 7F 66 08 02 02 02 40 02 02 02 40
+      TEXT: C..D.../..G..!..f....@...@
+      TLV Tag=0043 [?]: 99
+      TLV Tag=0044 [?]: 00 B0 2F 01 00
+      TLV Tag=0047 [?]: 84 21 E0
+      TLV Tag=7F66 [?]: 02 02 02 40 02 02 02 40
+      Snimljeno: ef_2F01.bin
+
+========== TEST 3: READ RECORD ==========
+
+========== TEST 4: PROPRIETARY (CLA=80) ==========
+
+========== TEST 5: AID sa Le=00 ==========
+SELECT AID BAEID2 sa Le=00 -> SW=6A82 []
+SELECT null AID -> SW=9000 [6F 10 84 08 A0 00 00 01 51 00 00 00 A5 04 9F 65 01 FF]
+  Null AID uspio! Čitam fajlove...
+
+=== Završeno - pošalji output! ===
+
+Process finished with exit code 0
+
+
+
+
+
 import javax.smartcardio.*;
 import java.util.*;
 import java.io.*;
