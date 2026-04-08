@@ -7,6 +7,175 @@ import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.Enumeration;
 
+public class EidDebugOpenSC {
+
+    public static void main(String[] args) {
+
+        System.out.println("=================================");
+        System.out.println("🔵 eID DEBUG START");
+        System.out.println("=================================\n");
+
+        try {
+
+            // -----------------------------------
+            // 1. CHECK JAVA VERSION
+            // -----------------------------------
+            System.out.println("✔ Java version: " + System.getProperty("java.version"));
+
+            // -----------------------------------
+            // 2. CONFIG PATH (IMPORTANT DEBUG)
+            // -----------------------------------
+            String dllPath = "C:\\Program Files\\OpenSC Project\\OpenSC\\pkcs11\\opensc_pkcs11.dll";
+
+            System.out.println("🔍 Checking PKCS#11 DLL...");
+            File dll = new File(dllPath);
+
+            if (!dll.exists()) {
+                System.out.println("❌ DLL NOT FOUND: " + dllPath);
+                return;
+            }
+
+            System.out.println("✔ DLL FOUND: " + dllPath);
+
+            // -----------------------------------
+            // 3. CREATE PKCS11 CONFIG FILE
+            // -----------------------------------
+            String config =
+                    "name=OpenSC\n" +
+                    "library=" + dllPath + "\n" +
+                    "slotListIndex=0\n";
+
+            File cfg = File.createTempFile("pkcs11", ".cfg");
+            FileOutputStream fos = new FileOutputStream(cfg);
+            fos.write(config.getBytes(StandardCharsets.UTF_8));
+            fos.close();
+
+            System.out.println("✔ Config file: " + cfg.getAbsolutePath());
+            System.out.println("📄 CONFIG CONTENT:\n" + config);
+
+            // -----------------------------------
+            // 4. LOAD PKCS11 PROVIDER
+            // -----------------------------------
+            System.out.println("\n🔵 Loading PKCS#11 provider...");
+
+            sun.security.pkcs11.SunPKCS11 provider =
+                    new sun.security.pkcs11.SunPKCS11(cfg.getAbsolutePath());
+
+            Security.addProvider(provider);
+
+            System.out.println("✔ Provider loaded: " + provider.getName());
+
+            // -----------------------------------
+            // 5. KEYSTORE INIT
+            // -----------------------------------
+            System.out.println("\n🔵 Initializing KeyStore...");
+
+            KeyStore ks = KeyStore.getInstance("PKCS11", provider);
+
+            try {
+                ks.load(null, null);
+                System.out.println("✔ KeyStore loaded (no PIN)");
+            } catch (Exception e) {
+                System.out.println("⚠ KeyStore load failed (PIN required or card issue)");
+                System.out.println("👉 " + e.getMessage());
+            }
+
+            // -----------------------------------
+            // 6. LIST ALIASES
+            // -----------------------------------
+            System.out.println("\n🔵 Reading aliases...");
+
+            Enumeration<String> aliases = ks.aliases();
+
+            if (!aliases.hasMoreElements()) {
+                System.out.println("❌ NO CERTIFICATES FOUND");
+                return;
+            }
+
+            while (aliases.hasMoreElements()) {
+
+                String alias = aliases.nextElement();
+
+                System.out.println("\n---------------------------------");
+                System.out.println("🔑 ALIAS: " + alias);
+
+                try {
+                    X509Certificate cert =
+                            (X509Certificate) ks.getCertificate(alias);
+
+                    if (cert == null) {
+                        System.out.println("❌ Certificate is NULL");
+                        continue;
+                    }
+
+                    System.out.println("✔ Certificate loaded");
+
+                    // SUBJECT
+                    String subject = cert.getSubjectX500Principal().getName();
+                    System.out.println("📄 SUBJECT: " + subject);
+
+                    // ISSUER
+                    System.out.println("🏢 ISSUER: " + cert.getIssuerX500Principal().getName());
+
+                    // SERIAL
+                    System.out.println("🔢 SERIAL: " + cert.getSerialNumber());
+
+                    // VALIDITY
+                    System.out.println("📅 VALID FROM: " + cert.getNotBefore());
+                    System.out.println("📅 VALID TO:   " + cert.getNotAfter());
+
+                    // EXTRACT NAME
+                    String name = extractCN(subject);
+                    System.out.println("👤 NAME: " + name);
+
+                } catch (Exception ex) {
+                    System.out.println("❌ ERROR reading cert:");
+                    ex.printStackTrace();
+                }
+            }
+
+            System.out.println("\n=================================");
+            System.out.println("✔ DEBUG FINISHED");
+            System.out.println("=================================");
+
+        } catch (Exception e) {
+
+            System.out.println("\n❌ FATAL ERROR:");
+            e.printStackTrace();
+        }
+    }
+
+    // -----------------------------------
+    // CN EXTRACTOR (IME PREZIME)
+    // -----------------------------------
+    private static String extractCN(String dn) {
+
+        if (dn == null) return "UNKNOWN";
+
+        String[] parts = dn.split(",");
+
+        for (String p : parts) {
+            p = p.trim();
+            if (p.startsWith("CN=")) {
+                return p.substring(3);
+            }
+        }
+
+        return "UNKNOWN";
+    }
+}
+
+
+
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
 public class EidOpenSC {
 
     public static void main(String[] args) {
