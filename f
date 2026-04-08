@@ -1,3 +1,191 @@
+
+import java.security.KeyStore;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Map;
+
+public class EidFullReader {
+
+    public static void main(String[] args) throws Exception {
+
+        System.out.println("=================================");
+        System.out.println("🔵 BIH eID USER READER");
+        System.out.println("=================================\n");
+
+        // -----------------------------------
+        // 1. UČITAJ WINDOWS CERT STORE
+        // -----------------------------------
+        KeyStore ks = KeyStore.getInstance("Windows-MY");
+        ks.load(null, null);
+
+        Enumeration<String> aliases = ks.aliases();
+
+        boolean found = false;
+
+        while (aliases.hasMoreElements()) {
+
+            String alias = aliases.nextElement();
+
+            X509Certificate cert =
+                    (X509Certificate) ks.getCertificate(alias);
+
+            if (cert == null) continue;
+
+            // -----------------------------------
+            // 2. FILTER ZA BIH eID
+            // -----------------------------------
+            if (!isEID(cert)) continue;
+
+            found = true;
+
+            System.out.println("=================================");
+            System.out.println("📇 eID CERT PRONAĐEN");
+            System.out.println("=================================");
+
+            System.out.println("Alias: " + alias);
+
+            // -----------------------------------
+            // 3. PARSIRAJ USER PODATKE
+            // -----------------------------------
+            Map<String, String> user = parseUser(cert);
+
+            String ime = user.get("2.5.4.42");   // ime
+            String prezime = user.get("2.5.4.4"); // prezime
+
+            System.out.println("\n👤 USER:");
+            System.out.println("Ime: " + ime);
+            System.out.println("Prezime: " + prezime);
+
+            // fallback ako nema OID-a
+            if (ime == null && prezime == null) {
+                System.out.println("Fallback CN: " +
+                        extractCN(cert.getSubjectX500Principal().getName()));
+            }
+
+            // -----------------------------------
+            // 4. OSTALI PODACI
+            // -----------------------------------
+            System.out.println("\n📄 SUBJECT:");
+            System.out.println(cert.getSubjectX500Principal().getName());
+
+            System.out.println("\n🏢 ISSUER:");
+            System.out.println(cert.getIssuerX500Principal().getName());
+
+            System.out.println("\n🔢 SERIAL:");
+            System.out.println(cert.getSerialNumber());
+
+            System.out.println("\n📅 VALID:");
+            System.out.println(cert.getNotBefore() + " -> " + cert.getNotAfter());
+
+            // -----------------------------------
+            // 5. SVI OID PODACI (DEBUG)
+            // -----------------------------------
+            System.out.println("\n🔍 SVI PODACI:");
+            for (String key : user.keySet()) {
+                System.out.println(key + " = " + user.get(key));
+            }
+        }
+
+        if (!found) {
+            System.out.println("❌ NIJE PRONAĐEN eID CERT");
+        }
+    }
+
+    // -----------------------------------
+    // PREPOZNAJ BIH eID
+    // -----------------------------------
+    private static boolean isEID(X509Certificate cert) {
+
+        String issuer = cert.getIssuerX500Principal().getName();
+
+        return issuer.contains("IDDEEA") || issuer.contains("iddeea");
+    }
+
+    // -----------------------------------
+    // PARSE SUBJECT (OID + HEX)
+    // -----------------------------------
+    private static Map<String, String> parseUser(X509Certificate cert) {
+
+        Map<String, String> user = new HashMap<>();
+
+        String dn = cert.getSubjectX500Principal().getName();
+
+        String[] parts = dn.split(",");
+
+        for (String part : parts) {
+
+            part = part.trim();
+
+            if (part.contains("#")) {
+
+                String[] kv = part.split("=");
+
+                if (kv.length == 2) {
+                    String key = kv[0];
+                    String value = decodeHex(kv[1].replace("#", ""));
+                    user.put(key, value);
+                }
+
+            } else {
+
+                String[] kv = part.split("=");
+
+                if (kv.length == 2) {
+                    user.put(kv[0], kv[1]);
+                }
+            }
+        }
+
+        return user;
+    }
+
+    // -----------------------------------
+    // HEX → STRING (ASN.1 UTF8)
+    // -----------------------------------
+    private static String decodeHex(String hex) {
+
+        try {
+
+            byte[] data = new byte[hex.length() / 2];
+
+            for (int i = 0; i < data.length; i++) {
+                data[i] = (byte) Integer.parseInt(
+                        hex.substring(i * 2, i * 2 + 2), 16);
+            }
+
+            // skip ASN.1 UTF8 header (0C)
+            if (data.length > 2 && data[0] == 0x0C) {
+                byte[] real = new byte[data.length - 2];
+                System.arraycopy(data, 2, real, 0, real.length);
+                return new String(real, "UTF-8");
+            }
+
+            return new String(data, "UTF-8");
+
+        } catch (Exception e) {
+            return "DECODE_ERROR";
+        }
+    }
+
+    // -----------------------------------
+    // FALLBACK CN
+    // -----------------------------------
+    private static String extractCN(String dn) {
+
+        for (String part : dn.split(",")) {
+            part = part.trim();
+            if (part.startsWith("CN=")) {
+                return part.substring(3);
+            }
+        }
+
+        return "UNKNOWN";
+    }
+}
+
+
+
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.util.Enumeration;
