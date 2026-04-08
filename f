@@ -1,3 +1,128 @@
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
+public class EidFinal {
+
+    public static void main(String[] args) {
+
+        System.out.println("==== eID START ====\n");
+
+        try {
+
+            // -----------------------------------
+            // 1. TAČAN DLL PATH (PRILAGODI!)
+            // -----------------------------------
+            String dllPath = "C:\\Users\\w881348\\Desktop\\ocr\\New folder\\opensc_pkcs11.dll";
+
+            File dll = new File(dllPath);
+
+            if (!dll.exists()) {
+                System.out.println("❌ DLL NOT FOUND:");
+                System.out.println(dllPath);
+                return;
+            }
+
+            System.out.println("✔ DLL FOUND");
+
+            // -----------------------------------
+            // 2. ISPRAVAN CONFIG
+            // -----------------------------------
+            String config =
+                    "name=OpenSC\n" +
+                    "library=" + dllPath + "\n" +
+                    "slotListIndex=0\n";
+
+            File cfg = File.createTempFile("pkcs11", ".cfg");
+
+            FileOutputStream fos = new FileOutputStream(cfg);
+            fos.write(config.getBytes(StandardCharsets.UTF_8));
+            fos.close();
+
+            System.out.println("\nCONFIG:");
+            System.out.println(config);
+
+            // -----------------------------------
+            // 3. LOAD PROVIDER
+            // -----------------------------------
+            sun.security.pkcs11.SunPKCS11 provider =
+                    new sun.security.pkcs11.SunPKCS11(cfg.getAbsolutePath());
+
+            Security.addProvider(provider);
+
+            System.out.println("✔ PROVIDER LOADED");
+
+            // -----------------------------------
+            // 4. KEYSTORE
+            // -----------------------------------
+            KeyStore ks = KeyStore.getInstance("PKCS11", provider);
+
+            try {
+                ks.load(null, null);
+                System.out.println("✔ KEYSTORE LOADED");
+            } catch (Exception e) {
+                System.out.println("⚠ PIN REQUIRED ili kartica problem");
+                System.out.println(e.getMessage());
+            }
+
+            // -----------------------------------
+            // 5. CERTS
+            // -----------------------------------
+            Enumeration<String> aliases = ks.aliases();
+
+            if (!aliases.hasMoreElements()) {
+                System.out.println("❌ NEMA CERTIFIKATA");
+                System.out.println("👉 Probaj slotListIndex=1");
+                return;
+            }
+
+            while (aliases.hasMoreElements()) {
+
+                String alias = aliases.nextElement();
+
+                System.out.println("\nALIAS: " + alias);
+
+                X509Certificate cert =
+                        (X509Certificate) ks.getCertificate(alias);
+
+                if (cert == null) {
+                    System.out.println("❌ CERT NULL");
+                    continue;
+                }
+
+                String subject = cert.getSubjectX500Principal().getName();
+
+                System.out.println("SUBJECT: " + subject);
+                System.out.println("IME: " + extractCN(subject));
+            }
+
+        } catch (Exception e) {
+            System.out.println("\n❌ FATAL:");
+            e.printStackTrace();
+        }
+    }
+
+    private static String extractCN(String dn) {
+
+        if (dn == null) return "UNKNOWN";
+
+        for (String part : dn.split(",")) {
+            part = part.trim();
+            if (part.startsWith("CN=")) {
+                return part.substring(3);
+            }
+        }
+
+        return "UNKNOWN";
+    }
+}
+
+
+
 
 import java.io.File;
 import java.io.FileOutputStream;
