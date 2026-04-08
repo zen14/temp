@@ -1,3 +1,77 @@
+import java.security.KeyStore;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
+public class EidCardOnly {
+
+    public static void main(String[] args) throws Exception {
+
+        KeyStore ks = KeyStore.getInstance("Windows-MY");
+        ks.load(null, null);
+
+        Enumeration<String> aliases = ks.aliases();
+
+        while (aliases.hasMoreElements()) {
+
+            String alias = aliases.nextElement();
+
+            X509Certificate cert =
+                    (X509Certificate) ks.getCertificate(alias);
+
+            if (cert == null) continue;
+
+            String subject = cert.getSubjectX500Principal().getName();
+
+            // 🔴 FILTER ZA LIČNU KARTU
+            if (isEID(cert)) {
+
+                System.out.println("=================================");
+                System.out.println("📇 eID CERT PRONAĐEN");
+                System.out.println("=================================");
+
+                System.out.println("Alias: " + alias);
+                System.out.println("Ime: " + extractCN(subject));
+                System.out.println("Subject: " + subject);
+                System.out.println("Issuer: " + cert.getIssuerX500Principal().getName());
+                System.out.println("Serial: " + cert.getSerialNumber());
+                System.out.println("Valid from: " + cert.getNotBefore());
+                System.out.println("Valid to: " + cert.getNotAfter());
+            }
+        }
+    }
+
+    // -----------------------------------
+    // PREPOZNAJ eID CERT (BITNO)
+    // -----------------------------------
+    private static boolean isEID(X509Certificate cert) {
+
+        String issuer = cert.getIssuerX500Principal().getName();
+        String subject = cert.getSubjectX500Principal().getName();
+
+        return issuer.contains("IDDEEA") ||
+               issuer.contains("Bosnia") ||
+               subject.contains("BA");
+    }
+
+    // -----------------------------------
+    // IZVLAČENJE IMENA
+    // -----------------------------------
+    private static String extractCN(String dn) {
+
+        for (String part : dn.split(",")) {
+            part = part.trim();
+            if (part.startsWith("CN=")) {
+                return part.substring(3);
+            }
+        }
+
+        return "UNKNOWN";
+    }
+}
+
+
+
+
 
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
