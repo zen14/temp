@@ -1,4 +1,102 @@
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
 
+public class EidJava8HID {
+
+    public static void main(String[] args) {
+
+        try {
+
+            // --------------------------------------
+            // 1. PKCS#11 CONFIG (HID DRIVER)
+            // --------------------------------------
+            String config =
+                    "name=HIDeID\n" +
+                    "library=C:\\Windows\\System32\\eps2003csp11.dll\n" +
+                    "slotListIndex=0";
+
+            File cfg = File.createTempFile("pkcs11", ".cfg");
+
+            FileOutputStream fos = new FileOutputStream(cfg);
+            fos.write(config.getBytes(StandardCharsets.UTF_8));
+            fos.close();
+
+            // --------------------------------------
+            // 2. LOAD PROVIDER (Java 8 compatible)
+            // --------------------------------------
+            sun.security.pkcs11.SunPKCS11 provider =
+                    new sun.security.pkcs11.SunPKCS11(cfg.getAbsolutePath());
+
+            Security.addProvider(provider);
+
+            // --------------------------------------
+            // 3. KEYSTORE INIT
+            // --------------------------------------
+            KeyStore ks = KeyStore.getInstance("PKCS11", provider);
+
+            // ako kartica traži PIN:
+            // ks.load(null, "1234".toCharArray());
+            ks.load(null, null);
+
+            System.out.println("✔ Kartica uspješno učitana\n");
+
+            // --------------------------------------
+            // 4. READ CERTIFICATES
+            // --------------------------------------
+            Enumeration<String> aliases = ks.aliases();
+
+            while (aliases.hasMoreElements()) {
+
+                String alias = aliases.nextElement();
+
+                X509Certificate cert =
+                        (X509Certificate) ks.getCertificate(alias);
+
+                if (cert != null) {
+
+                    String subject = cert.getSubjectX500Principal().getName();
+
+                    System.out.println("📄 SUBJECT:");
+                    System.out.println(subject);
+
+                    String ime = extractCN(subject);
+
+                    System.out.println("\n👤 IME I PREZIME:");
+                    System.out.println(ime);
+
+                    System.out.println("----------------------------");
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // --------------------------------------
+    // EXTRACT CN (IME PREZIME)
+    // --------------------------------------
+    private static String extractCN(String dn) {
+
+        if (dn == null) return "Nepoznato";
+
+        String[] parts = dn.split(",");
+
+        for (String p : parts) {
+            p = p.trim();
+            if (p.startsWith("CN=")) {
+                return p.substring(3);
+            }
+        }
+
+        return "Nepoznato";
+    }
+}
 import java.security.KeyStore;
 import java.security.Security;
 import java.security.cert.X509Certificate;
