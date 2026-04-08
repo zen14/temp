@@ -1,3 +1,312 @@
+
+
+import javax.smartcardio.*;
+import java.util.*;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+
+/**
+ * BiH eID Reader v2 – kompatibilno sa BAEID2.0 (IDDEEA gen2)
+ *
+ * Kompajliranje: javac BihEidReader.java
+ * Pokretanje:    java BihEidReader
+ */
+public class BihEidReader {
+
+    // AID kandidati za BiH eID
+    private static final byte[][] AID_CANDIDATES = {
+        hexToBytes("F34549445F424945494432"),   // BAEID2 standardni
+        hexToBytes("A000000367455349474E"),      // eSign
+        hexToBytes("A0000000183003"),            // generički eID
+        hexToBytes("F3454944"),                  // kratki BAEID
+        hexToBytes("A00000018830030000"),        // varijanta
+    };
+
+    public static void main(String[] args) {
+        System.out.println("===========================================");
+        System.out.println("  BiH eID Reader v2  |  BAEID2.0");
+        System.out.println("===========================================\n");
+
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+            List<CardTerminal> terminals = factory.terminals().list();
+
+            if (terminals.isEmpty()) {
+                System.out.println("[GREŠKA] Nije pronađen nijedan čitač!");
+                return;
+            }
+
+            CardTerminal terminal = null;
+            for (CardTerminal t : terminals) {
+                System.out.println("Čitač: " + t.getName() + " | kartica: " + t.isCardPresent());
+                if (t.isCardPresent()) terminal = t;
+            }
+
+            if (terminal == null) {
+                System.out.println("Ubaci karticu...");
+                terminals.get(0).waitForCardPresent(30000);
+                terminal = terminals.get(0);
+            }
+
+            System.out.println("\nSpajam se na: " + terminal.getName());
+            Card card = terminal.connect("*");
+            CardChannel ch = card.getBasicChannel();
+
+            byte[] atr = card.getATR().getBytes();
+            System.out.println("ATR: " + bytesToHex(atr));
+            System.out.println("ATR string: " + atrToString(atr));
+            System.out.println();
+
+            // KORAK 1: SELECT MF
+            System.out.println("--- SELECT MF ---");
+            ResponseAPDU mfResp = ch.transmit(new CommandAPDU(hexToBytes("00A40004023F00")));
+            System.out.println("MF SW: " + swHex(mfResp));
+            if (mfResp.getData().length > 0)
+                System.out.println("MF Data: " + bytesToHex(mfResp.getData()));
+
+            // KORAK 2: Probaj sve AID kandidate
+            System.out.println("\n--- TRAŽIM AID APLIKACIJE ---");
+            boolean aidFound = false;
+            for (byte[] aid : AID_CANDIDATES) {
+                byte[] selectAid = buildSelectAid(aid);
+                ResponseAPDU r = ch.transmit(new CommandAPDU(selectAid));
+                System.out.printf("AID %s -> SW=%s%n", bytesToHex(aid), swHex(r));
+                if (r.getSW() == 0x9000 || (r.getSW() & 0xFF00) == 0x6100) {
+                    System.out.println("  ✓ AID pronađen! Response: " + bytesToHex(r.getData()));
+                    aidFound = true;
+                    System.out.println("\n  Probam EF fajlove...");
+                    tryReadAllFiles(ch);
+                    break;
+                }
+            }
+
+            if (!aidFound) {
+                System.out.println("\nNijedan AID nije prihvaćen. Probam direktno čitanje...");
+                tryDirectRead(ch);
+            }
+
+            // KORAK 3: GET DATA
+            System.out.println("\n--- POKUŠAJ GET DATA ---");
+            tryGetData(ch);
+
+            card.disconnect(false);
+            System.out.println("\n=== Završeno ===");
+
+        } catch (Exception e) {
+            System.out.println("[GREŠKA] " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    // -------------------------------------------------------
+    private static void tryReadAllFiles(CardChannel ch) throws CardException {
+        int[][] fileIds = {
+            {0x01, 0x01}, {0x01, 0x02}, {0x01, 0x03}, {0x01, 0x04},
+            {0x02, 0x01}, {0x02, 0x02}, {0x02, 0x03},
+            {0x00, 0x01}, {0x00, 0x02}, {0x00, 0x03},
+            {0xD0, 0x01}, {0xD0, 0x02}, {0xD0, 0x03},
+        };
+
+        for (int[] fid : fileIds) {
+            byte[] sel = {0x00, (byte)0xA4, 0x02, 0x0C, 0x02, (byte)fid[0], (byte)fid[1]};
+            ResponseAPDU r = ch.transmit(new CommandAPDU(sel));
+            if (r.getSW() == 0x9000 || (r.getSW() & 0xFF00) == 0x6100) {
+                System.out.printf("  EF %02X%02X -> SELECT OK%n", fid[0], fid[1]);
+                byte[] data = readBinary(ch);
+                if (data != null && data.length > 0) {
+                    System.out.println("    Data (" + data.length + "b): " + bytesToHex(data));
+                    String txt = extractReadableText(data);
+                    if (!txt.isEmpty()) System.out.println("    Tekst: " + txt);
+                    parseTLV(data, "    ");
+                }
+            }
+        }
+    }
+
+    private static void tryDirectRead(CardChannel ch) throws CardException {
+        System.out.println("Direktno READ BINARY:");
+        byte[] data = readBinary(ch);
+        if (data != null && data.length > 0) {
+            System.out.println("Data: " + bytesToHex(data));
+            System.out.println("Tekst: " + extractReadableText(data));
+            parseTLV(data, "  ");
+        } else {
+            System.out.println("Nema podataka.");
+        }
+    }
+
+    private static void tryGetData(CardChannel ch) throws CardException {
+        int[] tags = {0x9F01, 0x9F07, 0x9F08, 0x9F0D, 0x9F0E, 0x9F0F,
+                      0x5F24, 0x5F20, 0x5F2C, 0x5F28, 0x9F49, 0x9F69};
+        for (int tag : tags) {
+            byte[] apdu = {0x00, (byte)0xCA, (byte)((tag>>8)&0xFF), (byte)(tag&0xFF), 0x00};
+            ResponseAPDU r = ch.transmit(new CommandAPDU(apdu));
+            if (r.getSW() == 0x9000 && r.getData().length > 0) {
+                System.out.printf("  GET DATA %04X: %s%n", tag, bytesToHex(r.getData()));
+            }
+        }
+    }
+
+    private static byte[] readBinary(CardChannel ch) throws CardException {
+        List<Byte> all = new ArrayList<>();
+        int offset = 0;
+        int block = 0xEF;
+
+        while (true) {
+            byte[] apdu = {
+                0x00, (byte)0xB0,
+                (byte)((offset >> 8) & 0x7F),
+                (byte)(offset & 0xFF),
+                (byte)block
+            };
+            ResponseAPDU r = ch.transmit(new CommandAPDU(apdu));
+            int sw = r.getSW();
+
+            if (sw == 0x9000) {
+                byte[] d = r.getData();
+                if (d.length == 0) break;
+                for (byte b : d) all.add(b);
+                offset += d.length;
+                if (d.length < block) break;
+            } else if ((sw & 0xFF00) == 0x6C00) {
+                block = sw & 0xFF;
+                if (block == 0) block = 0x100;
+                continue;
+            } else if ((sw & 0xFF00) == 0x6100) {
+                int respLen = sw & 0xFF;
+                if (respLen == 0) respLen = 0xFF;
+                ResponseAPDU gr = ch.transmit(new CommandAPDU(
+                    new byte[]{0x00, (byte)0xC0, 0x00, 0x00, (byte)respLen}));
+                if (gr.getSW() == 0x9000) {
+                    for (byte b : gr.getData()) all.add(b);
+                }
+                break;
+            } else {
+                break;
+            }
+        }
+
+        byte[] res = new byte[all.size()];
+        for (int i = 0; i < res.length; i++) res[i] = all.get(i);
+        return res;
+    }
+
+    // -------------------------------------------------------
+    private static void parseTLV(byte[] data, String indent) {
+        if (data.length < 2) return;
+        int i = 0;
+        while (i < data.length - 1) {
+            int tag = data[i] & 0xFF;
+            if (tag == 0x00 || tag == 0xFF) { i++; continue; }
+            if ((tag & 0x1F) == 0x1F && i + 1 < data.length) {
+                tag = (tag << 8) | (data[i+1] & 0xFF);
+                i += 2;
+            } else {
+                i++;
+            }
+            if (i >= data.length) break;
+            int len = data[i] & 0xFF;
+            i++;
+            if (len == 0x81 && i < data.length) { len = data[i] & 0xFF; i++; }
+            else if (len == 0x82 && i + 1 < data.length) {
+                len = ((data[i]&0xFF)<<8)|(data[i+1]&0xFF); i+=2;
+            }
+            if (i + len > data.length) break;
+            byte[] val = Arrays.copyOfRange(data, i, i + len);
+            i += len;
+            String valStr = isPrintable(val) ? new String(val).trim() : bytesToHex(val);
+            System.out.printf("%sTag=0x%X [%s]: %s%n", indent, tag, getTagName(tag), valStr);
+        }
+    }
+
+    // -------------------------------------------------------
+    private static byte[] buildSelectAid(byte[] aid) {
+        byte[] apdu = new byte[5 + aid.length];
+        apdu[0] = 0x00; apdu[1] = (byte)0xA4;
+        apdu[2] = 0x04; apdu[3] = 0x00;
+        apdu[4] = (byte)aid.length;
+        System.arraycopy(aid, 0, apdu, 5, aid.length);
+        return apdu;
+    }
+
+    private static String extractReadableText(byte[] data) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : data) {
+            int c = b & 0xFF;
+            if (c >= 0x20 && c <= 0x7E) sb.append((char)c);
+            else if (sb.length() > 0 && sb.charAt(sb.length()-1) != ' ') sb.append(' ');
+        }
+        return sb.toString().replaceAll("\\s+", " ").trim();
+    }
+
+    private static String atrToString(byte[] atr) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : atr) {
+            int c = b & 0xFF;
+            if (c >= 0x20 && c <= 0x7E) sb.append((char)c);
+        }
+        return sb.toString();
+    }
+
+    private static String getTagName(int tag) {
+        switch (tag) {
+            case 0x5F01: return "Ime";
+            case 0x5F02: return "Prezime";
+            case 0x5F03: return "Srednje ime";
+            case 0x5F04: return "Datum rodjenja";
+            case 0x5F05: return "Pol";
+            case 0x5F06: return "JMBG";
+            case 0x5F07: return "Broj LK";
+            case 0x5F08: return "Datum izdavanja";
+            case 0x5F09: return "Datum isteka";
+            case 0x5F0A: return "Organ izdavanja";
+            case 0x5F0B: return "Mjesto rodjenja";
+            case 0x5F0C: return "Ulica";
+            case 0x5F0D: return "Kucni broj";
+            case 0x5F0E: return "Grad";
+            case 0x5F0F: return "Opcina";
+            case 0x5F10: return "Postanski broj";
+            case 0x5F20: return "MRZ ime";
+            case 0x5F24: return "Datum isteka";
+            case 0x5F28: return "Zemlja";
+            case 0x5F2C: return "Nacionalnost";
+            case 0x5F35: return "Pol ICAO";
+            default: return "?";
+        }
+    }
+
+    private static boolean isPrintable(byte[] data) {
+        if (data.length == 0) return false;
+        for (byte b : data) {
+            int c = b & 0xFF;
+            if (c < 0x20 && c != 0x0A && c != 0x0D) return false;
+            if (c > 0x7E && c < 0xA0) return false;
+        }
+        return true;
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) sb.append(String.format("%02X ", b));
+        return sb.toString().trim();
+    }
+
+    private static byte[] hexToBytes(String hex) {
+        int len = hex.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2)
+            data[i/2] = (byte)((Character.digit(hex.charAt(i),16)<<4)
+                              + Character.digit(hex.charAt(i+1),16));
+        return data;
+    }
+
+    private static String swHex(ResponseAPDU r) {
+        return String.format("%04X", r.getSW());
+    }
+}
+
+
+
 import javax.smartcardio.*;
 import java.util.*;
 
