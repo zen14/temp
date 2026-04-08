@@ -1,3 +1,139 @@
+import javax.smartcardio.*;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+import java.util.List;
+
+public class EidCardOnlyPKCS11 {
+
+    public static void main(String[] args) throws Exception {
+
+        System.out.println("📡 Čekam karticu...");
+
+        TerminalFactory factory = TerminalFactory.getDefault();
+        List<CardTerminal> terminals = factory.terminals().list();
+
+        CardTerminal terminal = terminals.get(0);
+
+        while (true) {
+
+            terminal.waitForCardPresent(0);
+            System.out.println("\n📇 Kartica detektovana!");
+
+            try {
+                readFromCard();
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            terminal.waitForCardAbsent(0);
+            System.out.println("📤 Kartica uklonjena\n");
+        }
+    }
+
+    private static void readFromCard() throws Exception {
+
+        // -----------------------------------
+        // 1. PKCS#11 CONFIG
+        // -----------------------------------
+        String dllPath = "C:\\Users\\w881348\\Desktop\\ocr\\New folder\\opensc_pkcs11.dll";
+
+        String config =
+                "name=SmartCard\n" +
+                "library=" + dllPath + "\n" +
+                "slotListIndex=0\n";
+
+        File cfg = File.createTempFile("pkcs11", ".cfg");
+
+        try (FileOutputStream fos = new FileOutputStream(cfg)) {
+            fos.write(config.getBytes(StandardCharsets.UTF_8));
+        }
+
+        // -----------------------------------
+        // 2. LOAD PROVIDER
+        // -----------------------------------
+        sun.security.pkcs11.SunPKCS11 provider =
+                new sun.security.pkcs11.SunPKCS11(cfg.getAbsolutePath());
+
+        Security.addProvider(provider);
+
+        // -----------------------------------
+        // 3. KEYSTORE (SAMO KARTICA!)
+        // -----------------------------------
+        KeyStore ks = KeyStore.getInstance("PKCS11", provider);
+
+        ks.load(null, null); // PIN popup ako treba
+
+        Enumeration<String> aliases = ks.aliases();
+
+        if (!aliases.hasMoreElements()) {
+            System.out.println("❌ Nema certifikata na kartici");
+            return;
+        }
+
+        while (aliases.hasMoreElements()) {
+
+            String alias = aliases.nextElement();
+
+            X509Certificate cert =
+                    (X509Certificate) ks.getCertificate(alias);
+
+            if (cert == null) continue;
+
+            System.out.println("=================================");
+            System.out.println("📇 CERT SA KARTICE");
+            System.out.println("=================================");
+
+            System.out.println("Alias: " + alias);
+
+            String subject = cert.getSubjectX500Principal().getName();
+
+            System.out.println("Subject: " + subject);
+
+            System.out.println("Ime: " + extractName(subject));
+        }
+    }
+
+    // -----------------------------------
+    // DECODE IMENA (HEX)
+    // -----------------------------------
+    private static String extractName(String dn) {
+
+        try {
+
+            if (dn.contains("#")) {
+
+                String hex = dn.split("#")[1];
+
+                byte[] data = new byte[hex.length() / 2];
+
+                for (int i = 0; i < data.length; i++) {
+                    data[i] = (byte) Integer.parseInt(
+                            hex.substring(i * 2, i * 2 + 2), 16);
+                }
+
+                if (data[0] == 0x0C) {
+                    byte[] real = new byte[data.length - 2];
+                    System.arraycopy(data, 2, real, 0, real.length);
+                    return new String(real, "UTF-8");
+                }
+
+                return new String(data, "UTF-8");
+            }
+
+        } catch (Exception ignored) {}
+
+        return "UNKNOWN";
+    }
+}
+
+
+
+
 
 import javax.smartcardio.*;
 import java.security.KeyStore;
