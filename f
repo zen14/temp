@@ -1,3 +1,82 @@
+import javax.smartcardio.*;
+import java.util.List;
+
+public class NFCFix {
+
+    public static void main(String[] args) throws Exception {
+
+        TerminalFactory factory = TerminalFactory.getDefault();
+        List<CardTerminal> terminals = factory.terminals().list();
+
+        if (terminals.isEmpty()) {
+            System.out.println("❌ Nema readera");
+            return;
+        }
+
+        System.out.println("📡 Svi readeri:");
+
+        CardTerminal nfcTerminal = null;
+
+        for (CardTerminal t : terminals) {
+            System.out.println(" - " + t.getName());
+
+            // 🔥 KLJUČNO: tražimo contactless / CL / NFC
+            String name = t.getName().toLowerCase();
+
+            if (name.contains("cl") || name.contains("contactless") || name.contains("nfc")) {
+                nfcTerminal = t;
+            }
+        }
+
+        // fallback ako nije našao
+        if (nfcTerminal == null) {
+            System.out.println("⚠️ NFC reader nije jasno označen → uzimam prvi");
+            nfcTerminal = terminals.get(0);
+        }
+
+        System.out.println("\n👉 Koristim: " + nfcTerminal.getName());
+        System.out.println("📥 Čekam NFC karticu...");
+
+        while (true) {
+
+            if (nfcTerminal.waitForCardPresent(1000)) {
+
+                try {
+                    System.out.println("📶 NFC DETEKTOVAN!");
+
+                    // 🔥 OBAVEZNO
+                    Card card = nfcTerminal.connect("T=CL");
+
+                    System.out.println("ATR: " + bytesToHex(card.getATR().getBytes()));
+
+                    card.disconnect(false);
+
+                } catch (Exception e) {
+                    System.out.println("❌ Greška:");
+                    e.printStackTrace();
+                }
+
+                while (nfcTerminal.isCardPresent()) {
+                    Thread.sleep(500);
+                }
+
+                System.out.println("\n📤 Kartica uklonjena");
+                System.out.println("📥 Čekam NFC karticu...");
+            }
+        }
+    }
+
+    public static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString();
+    }
+}
+
+
+
 
 import javax.smartcardio.*;
 import java.util.List;
