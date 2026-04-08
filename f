@@ -1,3 +1,302 @@
+import javax.smartcardio.*;
+import java.util.*;
+import java.io.*;
+
+/**
+ * BiH eID Explorer v3 - Sistematsko istraživanje kartice
+ *
+ * Kompajliranje: javac BihEidReader.java
+ * Pokretanje:    java BihEidReader
+ */
+public class BihEidReader {
+
+    public static void main(String[] args) {
+        System.out.println("===========================================");
+        System.out.println("  BiH eID Explorer v3  |  BAEID2.0");
+        System.out.println("===========================================\n");
+
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+            List<CardTerminal> terminals = factory.terminals().list();
+
+            CardTerminal terminal = null;
+            for (CardTerminal t : terminals) {
+                if (t.isCardPresent()) { terminal = t; break; }
+            }
+            if (terminal == null) {
+                terminals.get(0).waitForCardPresent(15000);
+                terminal = terminals.get(0);
+            }
+
+            System.out.println("Čitač: " + terminal.getName());
+            Card card = terminal.connect("*");
+            CardChannel ch = card.getBasicChannel();
+            System.out.println("ATR: " + hex(card.getATR().getBytes()) + "\n");
+
+            // ===================================================
+            // TEST 1: SELECT MF razne kombinacije
+            // ===================================================
+            System.out.println("========== TEST 1: SELECT MF ==========");
+            for (byte p2 : new byte[]{0x00, 0x04, 0x0C}) {
+                ResponseAPDU r = ch.transmit(new CommandAPDU(
+                    new byte[]{0x00,(byte)0xA4,0x00,p2,0x02,(byte)0x3F,(byte)0x00}));
+                System.out.printf("SELECT MF P2=%02X -> SW=%04X data=[%s]%n",
+                    p2 & 0xFF, r.getSW(), hex(r.getData()));
+            }
+            // SELECT MF bez Lc (samo 2 bajta)
+            ResponseAPDU r0 = ch.transmit(new CommandAPDU(new byte[]{0x00,(byte)0xA4,0x00,0x00}));
+            System.out.printf("SELECT MF bez Lc -> SW=%04X%n", r0.getSW());
+
+            // ===================================================
+            // TEST 2: Brute-force File ID-ovi (nakon MF reset)
+            // ===================================================
+            System.out.println("\n========== TEST 2: BRUTE-FORCE FILE IDs ==========");
+            ch.transmit(new CommandAPDU(hexToBytes("00A4000C023F00")));
+
+            // Svaki (hiB, loB) par, probaj P1=02 (by file ID) i P1=00
+            int[][] tries = {
+                {0x00,0x01},{0x00,0x02},{0x00,0x03},{0x00,0x04},{0x00,0x05},
+                {0x01,0x01},{0x01,0x02},{0x01,0x03},{0x01,0x04},{0x01,0x05},
+                {0x02,0x01},{0x02,0x02},{0x02,0x03},{0x02,0x04},{0x02,0x05},
+                {0x03,0x01},{0x03,0x02},{0x03,0x03},
+                {0x10,0x01},{0x10,0x02},{0x10,0x03},
+                {0x20,0x01},{0x20,0x02},{0x20,0x03},
+                {0x50,0x01},{0x50,0x02},{0x50,0x03},
+                {0xD0,0x01},{0xD0,0x02},{0xD0,0x03},{0xD0,0x04},
+                {0xEF,0x01},{0xEF,0x02},{0xEF,0x03},
+                {0x3F,0x01},{0x3F,0x02},
+                {0x2F,0x00},{0x2F,0x01},{0x2F,0x02},  // standard EFs
+            };
+
+            for (int[] fid : tries) {
+                byte hi = (byte)fid[0], lo = (byte)fid[1];
+                for (byte p1 : new byte[]{0x02, 0x00}) {
+                    for (byte p2 : new byte[]{0x00, 0x0C}) {
+                        byte[] sel = {0x00,(byte)0xA4,p1,p2,0x02,hi,lo};
+                        ResponseAPDU r = ch.transmit(new CommandAPDU(sel));
+                        int sw = r.getSW();
+                        if (sw != 0x6A82 && sw != 0x6D00 && sw != 0x6E00 && sw != 0x6700 && sw != 0x6800) {
+                            System.out.printf("  *** EF %02X%02X P1=%02X P2=%02X -> SW=%04X [%s]%n",
+                                hi&0xFF, lo&0xFF, p1&0xFF, p2&0xFF, sw, hex(r.getData()));
+                            if (sw == 0x9000 || (sw & 0xFF00) == 0x6100) {
+                                byte[] data = readBinary(ch);
+                                if (data.length > 0) {
+                                    System.out.println("      DATA(" + data.length + "): " + hex(data));
+                                    System.out.println("      TEXT: " + toText(data));
+                                    parseTLV(data);
+                                    // Sačuvaj fajl
+                                    String fname = String.format("ef_%02X%02X.bin", hi&0xFF, lo&0xFF);
+                                    saveFile(data, fname);
+                                    System.out.println("      Snimljeno: " + fname);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ===================================================
+            // TEST 3: READ RECORD (EMV stil)
+            // ===================================================
+            System.out.println("\n========== TEST 3: READ RECORD ==========");
+            ch.transmit(new CommandAPDU(hexToBytes("00A4000C023F00")));
+            for (int sfi = 1; sfi <= 30; sfi++) {
+                for (int rec = 1; rec <= 5; rec++) {
+                    byte p2 = (byte)((sfi << 3) | 0x04);
+                    byte[] apdu = {0x00,(byte)0xB2,(byte)rec,p2,0x00};
+                    ResponseAPDU r = ch.transmit(new CommandAPDU(apdu));
+                    int sw = r.getSW();
+                    if (sw == 0x9000 && r.getData().length > 0) {
+                        System.out.printf("  READ RECORD SFI=%d REC=%d -> SW=%04X DATA: %s%n",
+                            sfi, rec, sw, hex(r.getData()));
+                        System.out.println("  TEXT: " + toText(r.getData()));
+                        parseTLV(r.getData());
+                    } else if ((sw & 0xFF00) == 0x6C00) {
+                        // Ponovi sa tačnom dužinom
+                        byte[] apdu2 = {0x00,(byte)0xB2,(byte)rec,p2,(byte)(sw&0xFF)};
+                        ResponseAPDU r2 = ch.transmit(new CommandAPDU(apdu2));
+                        if (r2.getSW() == 0x9000) {
+                            System.out.printf("  READ RECORD SFI=%d REC=%d (retry): %s%n",
+                                sfi, rec, hex(r2.getData()));
+                        }
+                    }
+                }
+            }
+
+            // ===================================================
+            // TEST 4: Proprietarne CLA=80 komande
+            // ===================================================
+            System.out.println("\n========== TEST 4: PROPRIETARY (CLA=80) ==========");
+            String[] cmds80 = {
+                "80 CA 00 01 00", "80 CA 00 02 00", "80 CA 00 03 00",
+                "80 CA 9F 17 00", "80 CA 9F 36 00",
+                "80 B0 00 00 00", "80 B2 01 0C 00",
+                "80 A4 00 00 02 3F 00",
+                "80 30 00 00 00",  // GET CHALLENGE style
+                "80 E2 00 00 00",
+            };
+            for (String cmd : cmds80) {
+                ResponseAPDU r = ch.transmit(new CommandAPDU(hexToBytes(cmd.replace(" ",""))));
+                int sw = r.getSW();
+                if (sw != 0x6D00 && sw != 0x6E00 && sw != 0x6700 && sw != 0x6800) {
+                    System.out.printf("  %s -> SW=%04X [%s]%n", cmd, sw, hex(r.getData()));
+                }
+            }
+
+            // ===================================================
+            // TEST 5: IDDEEA specifični AID sa Le=00 na kraju
+            // ===================================================
+            System.out.println("\n========== TEST 5: AID sa Le=00 ==========");
+            // Neke kartice zahtijevaju Le bajt na SELECT AID
+            byte[] aidBytes = hexToBytes("F34549445F424945494432");
+            byte[] selAidLe = new byte[6 + aidBytes.length];
+            selAidLe[0]=0x00; selAidLe[1]=(byte)0xA4;
+            selAidLe[2]=0x04; selAidLe[3]=0x00;
+            selAidLe[4]=(byte)aidBytes.length;
+            System.arraycopy(aidBytes, 0, selAidLe, 5, aidBytes.length);
+            selAidLe[5+aidBytes.length]=0x00; // Le
+
+            ResponseAPDU rAid = ch.transmit(new CommandAPDU(selAidLe));
+            System.out.printf("SELECT AID BAEID2 sa Le=00 -> SW=%04X [%s]%n",
+                rAid.getSW(), hex(rAid.getData()));
+
+            // AID sa prvim bajtom = 00 (null AID - select first)
+            ResponseAPDU rNull = ch.transmit(new CommandAPDU(
+                new byte[]{0x00,(byte)0xA4,0x04,0x00,0x00}));
+            System.out.printf("SELECT null AID -> SW=%04X [%s]%n",
+                rNull.getSW(), hex(rNull.getData()));
+
+            if (rNull.getSW() == 0x9000 || (rNull.getSW() & 0xFF00) == 0x6100) {
+                System.out.println("  Null AID uspio! Čitam fajlove...");
+                tryReadAllFiles(ch);
+            }
+
+            card.disconnect(false);
+            System.out.println("\n=== Završeno - pošalji output! ===");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void tryReadAllFiles(CardChannel ch) throws CardException {
+        int[][] fids = {
+            {0x01,0x01},{0x01,0x02},{0x01,0x03},
+            {0x02,0x01},{0x02,0x02},{0x02,0x03},
+            {0xD0,0x01},{0xD0,0x02},{0xD0,0x03},
+        };
+        for (int[] fid : fids) {
+            byte[] sel = {0x00,(byte)0xA4,0x02,0x0C,0x02,(byte)fid[0],(byte)fid[1]};
+            ResponseAPDU r = ch.transmit(new CommandAPDU(sel));
+            if (r.getSW() == 0x9000) {
+                byte[] data = readBinary(ch);
+                if (data.length > 0) {
+                    System.out.printf("  EF %02X%02X: %s%n", fid[0], fid[1], hex(data));
+                    System.out.println("  TEXT: " + toText(data));
+                    parseTLV(data);
+                }
+            }
+        }
+    }
+
+    private static byte[] readBinary(CardChannel ch) throws CardException {
+        List<Byte> all = new ArrayList<>();
+        int offset = 0, block = 0xEF;
+        while (true) {
+            byte[] apdu = {0x00,(byte)0xB0,
+                (byte)((offset>>8)&0x7F),(byte)(offset&0xFF),(byte)block};
+            ResponseAPDU r = ch.transmit(new CommandAPDU(apdu));
+            int sw = r.getSW();
+            if (sw == 0x9000) {
+                byte[] d = r.getData();
+                if (d.length == 0) break;
+                for (byte b : d) all.add(b);
+                offset += d.length;
+                if (d.length < block) break;
+            } else if ((sw & 0xFF00) == 0x6C00) {
+                block = sw & 0xFF; if (block == 0) block = 0x100;
+            } else if ((sw & 0xFF00) == 0x6100) {
+                int n = sw & 0xFF; if (n == 0) n = 0xFF;
+                ResponseAPDU gr = ch.transmit(new CommandAPDU(
+                    new byte[]{0x00,(byte)0xC0,0x00,0x00,(byte)n}));
+                if (gr.getSW() == 0x9000) for (byte b : gr.getData()) all.add(b);
+                break;
+            } else break;
+        }
+        byte[] res = new byte[all.size()];
+        for (int i = 0; i < res.length; i++) res[i] = all.get(i);
+        return res;
+    }
+
+    private static void parseTLV(byte[] data) {
+        if (data.length < 2) return;
+        int i = 0;
+        while (i < data.length - 1) {
+            int tag = data[i] & 0xFF;
+            if (tag == 0x00 || tag == 0xFF) { i++; continue; }
+            if ((tag & 0x1F) == 0x1F && i+1 < data.length) {
+                tag = (tag<<8)|(data[i+1]&0xFF); i+=2;
+            } else i++;
+            if (i >= data.length) break;
+            int len = data[i] & 0xFF; i++;
+            if (len == 0x81 && i < data.length) { len = data[i]&0xFF; i++; }
+            else if (len == 0x82 && i+1 < data.length) {
+                len = ((data[i]&0xFF)<<8)|(data[i+1]&0xFF); i+=2;
+            }
+            if (i+len > data.length || len <= 0) break;
+            byte[] val = Arrays.copyOfRange(data, i, i+len); i+=len;
+            boolean print = val.length > 0;
+            for (byte b : val) { int c=b&0xFF; if(c<0x20||c>0x7E){print=false;break;} }
+            System.out.printf("      TLV Tag=%04X [%s]: %s%n", tag, tagName(tag),
+                print ? new String(val).trim() : hex(val));
+        }
+    }
+
+    private static String tagName(int t) {
+        switch(t) {
+            case 0x5F01: return "Ime";         case 0x5F02: return "Prezime";
+            case 0x5F03: return "Srednje";     case 0x5F04: return "Datum rod.";
+            case 0x5F05: return "Pol";         case 0x5F06: return "JMBG";
+            case 0x5F07: return "Broj LK";     case 0x5F08: return "Izdat";
+            case 0x5F09: return "Istice";      case 0x5F0A: return "Organ";
+            case 0x5F0B: return "Mj.rod.";     case 0x5F0C: return "Ulica";
+            case 0x5F0D: return "Kuc.br.";     case 0x5F0E: return "Grad";
+            case 0x5F0F: return "Opcina";      case 0x5F10: return "PTT";
+            case 0x5F20: return "MRZ";         case 0x5F24: return "Expiry";
+            case 0x5F28: return "Zemlja";      case 0x5F2C: return "Nat.";
+            default: return "?";
+        }
+    }
+
+    private static void saveFile(byte[] data, String name) {
+        try (FileOutputStream fos = new FileOutputStream(name)) { fos.write(data); }
+        catch (Exception e) { System.out.println("Greška snimanja: " + e.getMessage()); }
+    }
+
+    private static String toText(byte[] data) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : data) {
+            int c = b&0xFF;
+            sb.append((c>=0x20&&c<=0x7E) ? (char)c : '.');
+        }
+        return sb.toString();
+    }
+
+    private static String hex(byte[] b) {
+        if (b==null||b.length==0) return "";
+        StringBuilder sb=new StringBuilder();
+        for (byte x:b) sb.append(String.format("%02X ",x));
+        return sb.toString().trim();
+    }
+
+    private static byte[] hexToBytes(String s) {
+        s=s.replace(" ","");
+        byte[] d=new byte[s.length()/2];
+        for (int i=0;i<d.length;i++)
+            d[i]=(byte)((Character.digit(s.charAt(i*2),16)<<4)+Character.digit(s.charAt(i*2+1),16));
+        return d;
+    }
+}
 
 
 import javax.smartcardio.*;
