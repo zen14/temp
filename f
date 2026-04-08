@@ -1,3 +1,83 @@
+import java.io.FileInputStream;
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
+public class BiHEID_Java17 {
+
+    public static void main(String[] args) {
+
+        try {
+
+            // --------------------------------------------------
+            // 1. PKCS#11 CONFIG FILE
+            // --------------------------------------------------
+
+            String cfg =
+                    "name=BiHEID\n" +
+                    "library=C:\\Windows\\System32\\eps2003csp11.dll\n" +
+                    "slotListIndex=0";
+
+            java.nio.file.Path cfgPath =
+                    java.nio.file.Files.createTempFile("pkcs11", ".cfg");
+
+            java.nio.file.Files.writeString(cfgPath, cfg);
+
+            // --------------------------------------------------
+            // 2. LOAD PROVIDER (JAVA 17 SAFE WAY)
+            // --------------------------------------------------
+
+            java.security.Provider p = new sun.security.pkcs11.SunPKCS11(
+                    cfgPath.toString()
+            );
+
+            Security.addProvider(p);
+
+            // --------------------------------------------------
+            // 3. LOAD KEYSTORE
+            // --------------------------------------------------
+
+            KeyStore ks = KeyStore.getInstance("PKCS11", p);
+            ks.load(null, null); // PIN prompt ide ovdje
+
+            System.out.println("\n✅ eID uspješno učitan!\n");
+
+            // --------------------------------------------------
+            // 4. LIST CERTS
+            // --------------------------------------------------
+
+            Enumeration<String> aliases = ks.aliases();
+
+            while (aliases.hasMoreElements()) {
+
+                String alias = aliases.nextElement();
+
+                X509Certificate cert =
+                        (X509Certificate) ks.getCertificate(alias);
+
+                if (cert != null) {
+
+                    System.out.println("🔑 Alias: " + alias);
+                    System.out.println("👤 Subject: " + cert.getSubjectDN());
+                    System.out.println("🏢 Issuer: " + cert.getIssuerDN());
+                    System.out.println("📅 Valid until: " + cert.getNotAfter());
+                    System.out.println("---------------------------");
+                }
+            }
+
+        } catch (Exception e) {
+            System.out.println("❌ Greška:");
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+
+
+
 
 import java.security.KeyStore;
 import java.security.Security;
