@@ -1,3 +1,94 @@
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
+public class EidOpenSC {
+
+    public static void main(String[] args) {
+
+        try {
+
+            // -------------------------
+            // PKCS#11 CONFIG (OpenSC)
+            // -------------------------
+            String config =
+                    "name=OpenSC\n" +
+                    "library=C:\\Program Files\\OpenSC Project\\OpenSC\\pkcs11\\opensc_pkcs11.dll\n" +
+                    "slotListIndex=0";
+
+            File cfg = File.createTempFile("pkcs11", ".cfg");
+
+            FileOutputStream fos = new FileOutputStream(cfg);
+            fos.write(config.getBytes(StandardCharsets.UTF_8));
+            fos.close();
+
+            // -------------------------
+            // LOAD PROVIDER
+            // -------------------------
+            sun.security.pkcs11.SunPKCS11 provider =
+                    new sun.security.pkcs11.SunPKCS11(cfg.getAbsolutePath());
+
+            Security.addProvider(provider);
+
+            // -------------------------
+            // KEYSTORE
+            // -------------------------
+            KeyStore ks = KeyStore.getInstance("PKCS11", provider);
+
+            ks.load(null, null); // PIN ako treba
+
+            System.out.println("✔ Kartica učitana!\n");
+
+            // -------------------------
+            // READ CERTS
+            // -------------------------
+            Enumeration<String> aliases = ks.aliases();
+
+            while (aliases.hasMoreElements()) {
+
+                String alias = aliases.nextElement();
+
+                X509Certificate cert =
+                        (X509Certificate) ks.getCertificate(alias);
+
+                if (cert != null) {
+
+                    String subject = cert.getSubjectX500Principal().getName();
+
+                    System.out.println("📄 SUBJECT:");
+                    System.out.println(subject);
+
+                    System.out.println("\n👤 IME:");
+                    System.out.println(extractCN(subject));
+
+                    System.out.println("----------------------");
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static String extractCN(String dn) {
+
+        for (String part : dn.split(",")) {
+            if (part.trim().startsWith("CN=")) {
+                return part.trim().substring(3);
+            }
+        }
+
+        return "Nepoznato";
+    }
+}
+
+
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
