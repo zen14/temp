@@ -1,4 +1,289 @@
 import javax.smartcardio.*;
+import java.util.*;
+
+/**
+ * BiH eID Card Reader
+ * Čita podatke sa BiH lične karte putem PC/SC interfejsa
+ * Kompatibilno sa IDDEEA middlewareom i OmniKey čitačem
+ *
+ * Kompajliranje: javac BihEidReader.java
+ * Pokretanje:    java BihEidReader
+ */
+public class BihEidReader {
+
+    // -------------------------------------------------------
+    // BiH eID APDUs i File IDevi
+    // -------------------------------------------------------
+
+    // SELECT aplikacije po AID-u (BiH eID)
+    private static final byte[] SELECT_MF          = hexToBytes("00A40004023F00");
+    private static final byte[] SELECT_EF_ID       = hexToBytes("00A4000402D001"); // Lični podaci
+    private static final byte[] SELECT_EF_ADDRESS  = hexToBytes("00A4000402D002"); // Adresa
+    private static final byte[] SELECT_EF_PHOTO    = hexToBytes("00A4000402D003"); // Fotografija (binary)
+
+    // READ BINARY – čita do 256 bajtova (Le=0x00 → 256)
+    private static final byte[] READ_BINARY_BASE   = {0x00, (byte)0xB0, 0x00, 0x00, 0x00};
+
+    // -------------------------------------------------------
+    // Glavni program
+    // -------------------------------------------------------
+    public static void main(String[] args) {
+        System.out.println("===========================================");
+        System.out.println("  BiH eID Reader  |  IDDEEA + OmniKey");
+        System.out.println("===========================================\n");
+
+        try {
+            // 1) Nabavi TerminalFactory (koristi sistemski PC/SC)
+            TerminalFactory factory = TerminalFactory.getDefault();
+            List<CardTerminal> terminals = factory.terminals().list();
+
+            if (terminals.isEmpty()) {
+                System.out.println("[GREŠKA] Nije pronađen nijedan čitač kartica!");
+                System.out.println("Provjeri da li je OmniKey čitač priključen i driveri instalirani.");
+                return;
+            }
+
+            System.out.println("Pronađeni čitači:");
+            for (int i = 0; i < terminals.size(); i++) {
+                System.out.println("  [" + i + "] " + terminals.get(i).getName());
+            }
+            System.out.println();
+
+            // 2) Odaberi prvi čitač (ili onaj koji ima karticu)
+            CardTerminal terminal = null;
+            for (CardTerminal t : terminals) {
+                if (t.isCardPresent()) {
+                    terminal = t;
+                    break;
+                }
+            }
+
+            if (terminal == null) {
+                System.out.println("[ČEKANJE] Ubaci ličnu kartu u čitač...");
+                terminals.get(0).waitForCardPresent(30000);
+                terminal = terminals.get(0);
+            }
+
+            System.out.println("Koristim čitač: " + terminal.getName());
+            System.out.println("Kartica ubačena. Uspostavljam vezu...\n");
+
+            // 3) Spoji se na karticu (T=0 ili T=1 automatski)
+            Card card = terminal.connect("*");
+            CardChannel channel = card.getBasicChannel();
+
+            System.out.println("ATR: " + bytesToHex(card.getATR().getBytes()));
+            System.out.println();
+
+            // 4) Čitanje ličnih podataka
+            System.out.println("--- LIČNI PODACI ---");
+            readAndParseFile(channel, SELECT_EF_ID, true);
+
+            // 5) Čitanje adrese
+            System.out.println("\n--- ADRESA ---");
+            readAndParseFile(channel, SELECT_EF_ADDRESS, true);
+
+            // 6) Fotografija (samo veličina, ne ispisujemo binary)
+            System.out.println("\n--- FOTOGRAFIJA ---");
+            byte[] photo = readBinaryFile(channel, SELECT_EF_PHOTO);
+            if (photo != null) {
+                System.out.println("Fotografija pročitana, veličina: " + photo.length + " bajtova");
+                System.out.println("(JPEG/BMP data – sačuvaj u fajl po potrebi)");
+                // Opciono: sačuvaj u fajl
+                saveToFile(photo, "photo.jpg");
+                System.out.println("Sačuvana kao: photo.jpg");
+            }
+
+            card.disconnect(false);
+            System.out.println("\n=== Čitanje završeno ===");
+
+        } catch (CardException e) {
+            System.out.println("[GREŠKA PC/SC] " + e.getMessage());
+            e.printStackTrace();
+        } catch (Exception e) {
+            System.out.println("[GREŠKA] " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    // -------------------------------------------------------
+    // Odabir fajla i parsiranje TLV podataka
+    // -------------------------------------------------------
+    private static void readAndParseFile(CardChannel channel, byte[] selectApdu, boolean parseTlv)
+            throws CardException {
+
+        byte[] data = readBinaryFile(channel, selectApdu);
+        if (data == null) return;
+
+        System.out.println("Raw hex: " + bytesToHex(data));
+        System.out.println();
+
+        if (parseTlv) {
+            parseTLV(data);
+        }
+    }
+
+    private static byte[] readBinaryFile(CardChannel channel, byte[] selectApdu) throws CardException {
+        // SELECT fajl
+        ResponseAPDU selectResp = channel.transmit(new CommandAPDU(selectApdu));
+        if (selectResp.getSW() != 0x9000) {
+            System.out.println("[UPOZORENJE] SELECT nije uspio, SW=" +
+                    String.format("%04X", selectResp.getSW()));
+            return null;
+        }
+
+        // Čitaj binarne podatke u blokovima
+        List<Byte> allData = new ArrayList<>();
+        int offset = 0;
+        int blockSize = 0xEF; // siguran blok za većinu čitača
+
+        while (true) {
+            byte[] readApdu = {
+                0x00, (byte)0xB0,
+                (byte)((offset >> 8) & 0x7F),
+                (byte)(offset & 0xFF),
+                (byte)blockSize
+            };
+
+            ResponseAPDU resp = channel.transmit(new CommandAPDU(readApdu));
+            int sw = resp.getSW();
+
+            if (sw == 0x9000 || (sw & 0xFF00) == 0x6200) {
+                byte[] chunk = resp.getData();
+                if (chunk.length == 0) break;
+                for (byte b : chunk) allData.add(b);
+                offset += chunk.length;
+                if (chunk.length < blockSize) break; // zadnji blok
+            } else if ((sw & 0xFF00) == 0x6C00) {
+                // 6CXX – ponovi sa tačnom dužinom
+                blockSize = sw & 0x00FF;
+                continue;
+            } else if (sw == 0x6B00 || sw == 0x6982 || sw == 0x6A82) {
+                break; // kraj fajla ili pristup odbijen
+            } else {
+                break;
+            }
+        }
+
+        byte[] result = new byte[allData.size()];
+        for (int i = 0; i < result.length; i++) result[i] = allData.get(i);
+        return result;
+    }
+
+    // -------------------------------------------------------
+    // TLV Parser – BiH eID koristi BER-TLV kodiranje
+    // -------------------------------------------------------
+    private static void parseTLV(byte[] data) {
+        int i = 0;
+        while (i < data.length - 1) {
+            int tag = data[i] & 0xFF;
+            if (tag == 0x00 || tag == 0xFF) { i++; continue; }
+
+            // Dvo-bajtni tag?
+            if ((tag & 0x1F) == 0x1F && i + 1 < data.length) {
+                tag = (tag << 8) | (data[i+1] & 0xFF);
+                i += 2;
+            } else {
+                i++;
+            }
+
+            if (i >= data.length) break;
+
+            // Dužina
+            int len = data[i] & 0xFF;
+            i++;
+            if (len == 0x81 && i < data.length) {
+                len = data[i] & 0xFF; i++;
+            } else if (len == 0x82 && i + 1 < data.length) {
+                len = ((data[i] & 0xFF) << 8) | (data[i+1] & 0xFF); i += 2;
+            }
+
+            if (i + len > data.length) break;
+
+            byte[] value = Arrays.copyOfRange(data, i, i + len);
+            i += len;
+
+            String tagName = getTagName(tag);
+            String valueStr = isPrintable(value) ?
+                    new String(value).trim() :
+                    bytesToHex(value);
+
+            System.out.printf("  Tag 0x%X %-30s : %s%n", tag, "(" + tagName + ")", valueStr);
+        }
+    }
+
+    private static String getTagName(int tag) {
+        // BiH eID poznati tagovi (ICAO + IDDEEA specifični)
+        switch (tag) {
+            case 0x61: return "Aplikacijska predloška";
+            case 0x5F01: return "Ime";
+            case 0x5F02: return "Prezime";
+            case 0x5F03: return "Srednje ime";
+            case 0x5F04: return "Datum rođenja";
+            case 0x5F05: return "Pol";
+            case 0x5F06: return "JMBG";
+            case 0x5F07: return "Broj lične karte";
+            case 0x5F08: return "Datum izdavanja";
+            case 0x5F09: return "Datum isteka";
+            case 0x5F0A: return "Organ izdavanja";
+            case 0x5F0B: return "Mjesto rođenja";
+            case 0x5F0C: return "Ulica";
+            case 0x5F0D: return "Kućni broj";
+            case 0x5F0E: return "Grad";
+            case 0x5F0F: return "Općina";
+            case 0x5F10: return "Poštanski broj";
+            case 0x5F11: return "Kanton/Entitet";
+            case 0x5F12: return "Državljanstvo";
+            case 0x5F1F: return "MRZ red 1";
+            case 0x5F20: return "MRZ red 2";
+            case 0x5F2C: return "Nacionalnost";
+            case 0x5F35: return "Pol (ICAO)";
+            case 0x80:   return "Kontekstualni podatak";
+            case 0x9F0E: return "Broj dokumenta";
+            default:     return "Nepoznat";
+        }
+    }
+
+    // -------------------------------------------------------
+    // Pomoćne metode
+    // -------------------------------------------------------
+    private static boolean isPrintable(byte[] data) {
+        for (byte b : data) {
+            int c = b & 0xFF;
+            if (c < 0x20 && c != 0x0A && c != 0x0D) return false;
+            if (c > 0x7E && c < 0xA0) return false;
+        }
+        return data.length > 0;
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) sb.append(String.format("%02X ", b));
+        return sb.toString().trim();
+    }
+
+    private static byte[] hexToBytes(String hex) {
+        int len = hex.length();
+        byte[] data = new byte[len / 2];
+        for (int i = 0; i < len; i += 2)
+            data[i / 2] = (byte)((Character.digit(hex.charAt(i), 16) << 4)
+                                + Character.digit(hex.charAt(i+1), 16));
+        return data;
+    }
+
+    private static void saveToFile(byte[] data, String filename) {
+        try {
+            java.io.FileOutputStream fos = new java.io.FileOutputStream(filename);
+            fos.write(data);
+            fos.close();
+        } catch (Exception e) {
+            System.out.println("[GREŠKA] Nije moguće sačuvati fajl: " + e.getMessage());
+        }
+    }
+}
+
+
+
+import javax.smartcardio.*;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
