@@ -4,6 +4,81 @@ import java.security.Security;
 import java.security.cert.X509Certificate;
 import java.util.Enumeration;
 
+public class BiHEID_PKCS11_Full {
+
+    public static void main(String[] args) {
+
+        try {
+
+            // --------------------------------------------------
+            // 1. REGISTRUJ PKCS#11 PROVIDER (bez SunPKCS11 klase)
+            // --------------------------------------------------
+
+            String pkcs11Config =
+                    "name=BiHEID\n" +
+                    "library=C:\\Windows\\System32\\eps2003csp11.dll\n" +
+                    "slotListIndex=0";
+
+            java.io.File configFile = java.io.File.createTempFile("pkcs11", ".cfg");
+            java.io.FileWriter fw = new java.io.FileWriter(configFile);
+            fw.write(pkcs11Config);
+            fw.close();
+
+            // Java PKCS#11 provider (standardni način)
+            sun.security.pkcs11.SunPKCS11 provider =
+                    new sun.security.pkcs11.SunPKCS11(configFile.getAbsolutePath());
+
+            Security.addProvider(provider);
+
+            // --------------------------------------------------
+            // 2. OTVORI KEYSTORE (traži PIN automatski)
+            // --------------------------------------------------
+
+            KeyStore ks = KeyStore.getInstance("PKCS11");
+            ks.load(null, null);
+
+            System.out.println("\n✅ eID kartica uspješno učitana!\n");
+
+            // --------------------------------------------------
+            // 3. ČITANJE CERTIFIKATA
+            // --------------------------------------------------
+
+            Enumeration<String> aliases = ks.aliases();
+
+            while (aliases.hasMoreElements()) {
+
+                String alias = aliases.nextElement();
+
+                System.out.println("🔑 Alias: " + alias);
+
+                X509Certificate cert =
+                        (X509Certificate) ks.getCertificate(alias);
+
+                if (cert != null) {
+                    System.out.println("👤 Subject: " + cert.getSubjectDN());
+                    System.out.println("🏢 Issuer: " + cert.getIssuerDN());
+                    System.out.println("📅 Valid from: " + cert.getNotBefore());
+                    System.out.println("📅 Valid to: " + cert.getNotAfter());
+                    System.out.println("--------------------------------------");
+                }
+            }
+
+            System.out.println("\n🎉 Gotovo!");
+
+        } catch (Exception e) {
+            System.out.println("❌ Greška:");
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
 public class BiHEIDWorking {
 
     public static void main(String[] args) {
