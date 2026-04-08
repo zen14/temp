@@ -1,3 +1,66 @@
+import javax.smartcardio.*;
+import java.util.List;
+
+public class ReadBosniaEID {
+
+    public static void main(String[] args) throws Exception {
+
+        TerminalFactory factory = TerminalFactory.getDefault();
+        List<CardTerminal> terminals = factory.terminals().list();
+
+        if (terminals.isEmpty()) {
+            System.out.println("Nema readera");
+            return;
+        }
+
+        CardTerminal terminal = terminals.get(0);
+
+        System.out.println("Čekam karticu...");
+
+        terminal.waitForCardPresent(0);
+
+        Card card = terminal.connect("*");
+        CardChannel channel = card.getBasicChannel();
+
+        System.out.println("ATR: " + bytesToHex(card.getATR().getBytes()));
+
+        // 🔐 SELECT AID (ovo moraš pogoditi tačan AID)
+        byte[] AID = new byte[] {
+                (byte)0xA0, 0x00, 0x00, 0x00, 0x77, 0x01, 0x08, 0x00
+        };
+
+        CommandAPDU select = new CommandAPDU(
+                0x00, 0xA4, 0x04, 0x00, AID
+        );
+
+        ResponseAPDU response = channel.transmit(select);
+
+        System.out.println("SELECT SW: " + Integer.toHexString(response.getSW()));
+
+        // primjer READ (vjerovatno će biti zaštićen)
+        CommandAPDU read = new CommandAPDU(
+                0x00, 0xB0, 0x00, 0x00, 0xFF
+        );
+
+        ResponseAPDU readResp = channel.transmit(read);
+
+        System.out.println("READ SW: " + Integer.toHexString(readResp.getSW()));
+        System.out.println("DATA: " + bytesToHex(readResp.getData()));
+
+        card.disconnect(false);
+    }
+
+    public static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString();
+    }
+}
+
+
+
 import org.jmrtd.*;
 import org.jmrtd.lds.icao.DG1File;
 import org.jmrtd.lds.icao.MRZInfo;
