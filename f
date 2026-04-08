@@ -1,6 +1,107 @@
 import javax.smartcardio.*;
 import java.util.List;
 
+public class NFCReaderFull {
+
+    public static void main(String[] args) {
+
+        try {
+
+            TerminalFactory factory = TerminalFactory.getDefault();
+            List<CardTerminal> terminals = factory.terminals().list();
+
+            if (terminals.isEmpty()) {
+                System.out.println("❌ Nema readera!");
+                return;
+            }
+
+            System.out.println("📡 Svi readeri:");
+
+            CardTerminal nfcTerminal = null;
+
+            // 🔍 Pronađi NFC reader
+            for (CardTerminal t : terminals) {
+                System.out.println(" - " + t.getName());
+
+                String name = t.getName().toLowerCase();
+
+                if (name.contains("cl") || name.contains("contactless") || name.contains("nfc")) {
+                    nfcTerminal = t;
+                }
+            }
+
+            // fallback ako nije pronađen
+            if (nfcTerminal == null) {
+                System.out.println("⚠️ NFC nije jasno označen → koristim prvi");
+                nfcTerminal = terminals.get(0);
+            }
+
+            System.out.println("\n👉 Koristim: " + nfcTerminal.getName());
+            System.out.println("📥 Čekam NFC karticu...");
+
+            while (true) {
+
+                if (nfcTerminal.waitForCardPresent(1000)) {
+
+                    try {
+                        System.out.println("📶 NFC DETEKTOVAN!");
+
+                        // 🔥 KLJUČNO: koristi "*" (NE T=CL)
+                        Card card = nfcTerminal.connect("*");
+
+                        System.out.println("📇 ATR: " + bytesToHex(card.getATR().getBytes()));
+
+                        CardChannel channel = card.getBasicChannel();
+
+                        // =========================
+                        // 🔐 TEST APDU (GET CHALLENGE)
+                        // =========================
+                        CommandAPDU cmd = new CommandAPDU(
+                                0x00, 0x84, 0x00, 0x00, 0x08
+                        );
+
+                        ResponseAPDU resp = channel.transmit(cmd);
+
+                        System.out.println("📤 SW: " + Integer.toHexString(resp.getSW()));
+                        System.out.println("📄 DATA: " + bytesToHex(resp.getData()));
+
+                        card.disconnect(false);
+
+                    } catch (Exception e) {
+                        System.out.println("❌ Greška:");
+                        e.printStackTrace();
+                    }
+
+                    // čekaj da se kartica ukloni
+                    while (nfcTerminal.isCardPresent()) {
+                        Thread.sleep(500);
+                    }
+
+                    System.out.println("\n📤 Kartica uklonjena");
+                    System.out.println("📥 Čekam NFC karticu...");
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // HEX helper
+    public static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString();
+    }
+}
+
+
+
+import javax.smartcardio.*;
+import java.util.List;
+
 public class NFCFix {
 
     public static void main(String[] args) throws Exception {
