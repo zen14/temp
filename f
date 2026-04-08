@@ -1,6 +1,126 @@
 import javax.smartcardio.*;
 import java.util.List;
 
+public class BiHEIDReader {
+
+    public static void main(String[] args) {
+        new BiHEIDReader().start();
+    }
+
+    public void start() {
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+
+            System.out.println("⏳ Čekam NFC karticu...");
+
+            while (true) {
+
+                List<CardTerminal> terminals = factory.terminals().list();
+
+                for (CardTerminal terminal : terminals) {
+
+                    if (terminal.isCardPresent()) {
+
+                        System.out.println("\n📇 Kartica detektovana na: " + terminal.getName());
+
+                        try {
+                            readCard(terminal);
+                        } catch (Exception e) {
+                            System.out.println("❌ Greška pri čitanju:");
+                            e.printStackTrace();
+                        }
+
+                        while (terminal.isCardPresent()) {
+                            Thread.sleep(500);
+                        }
+
+                        System.out.println("📤 Kartica uklonjena\n");
+                    }
+                }
+
+                Thread.sleep(500);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void readCard(CardTerminal terminal) throws Exception {
+
+        // ⚠️ KLJUČNO: T=CL (NFC / contactless)
+        Card card = terminal.connect("*");
+
+        System.out.println("🔗 Connected: " + card.getProtocol());
+
+        CardChannel channel = card.getBasicChannel();
+
+        byte[] atr = card.getATR().getBytes();
+        System.out.print("📡 ATR: ");
+        for (byte b : atr) {
+            System.out.printf("%02X ", b);
+        }
+        System.out.println();
+
+        // -----------------------------------------
+        // 1. PROBA SELECT AID (BAEID / eID applet)
+        // -----------------------------------------
+
+        byte[] selectAID = new byte[]{
+                (byte) 0x00, (byte) 0xA4, 0x04, 0x00,
+                0x0A,
+                (byte) 0xA0, 0x00, 0x00, 0x01, 0x67, 0x45, 0x53, 0x49, 0x42, 0x00
+        };
+
+        ResponseAPDU response = channel.transmit(new CommandAPDU(selectAID));
+
+        System.out.printf("📦 SELECT AID SW: %04X\n", response.getSW());
+
+        if (response.getSW() != 0x9000) {
+            System.out.println("⚠️ AID nije prihvaćen (kartica koristi drugi applet ili treba PIN/PACE)");
+        } else {
+            System.out.println("✅ AID prihvaćen!");
+        }
+
+        // -----------------------------------------
+        // 2. PROBA SIGURNOSNE KOMANDE (opciono)
+        // -----------------------------------------
+
+        // NE koristi GET CHALLENGE – BiH eID često ga blokira
+        // Zato ga NE šaljemo
+
+        // -----------------------------------------
+        // 3. PROBA READ BINARY (ako ima otvoren file)
+        // -----------------------------------------
+
+        byte[] readBinary = new byte[]{
+                (byte) 0x00, (byte) 0xB0, 0x00, 0x00, 0x10
+        };
+
+        ResponseAPDU readResp = channel.transmit(new CommandAPDU(readBinary));
+
+        System.out.printf("📄 READ SW: %04X\n", readResp.getSW());
+
+        if (readResp.getSW() == 0x9000) {
+            byte[] data = readResp.getData();
+            System.out.println("📦 DATA:");
+            for (byte b : data) {
+                System.out.printf("%02X ", b);
+            }
+            System.out.println();
+        } else {
+            System.out.println("⚠️ READ nije dozvoljen bez autentikacije (PIN/PACE/secure channel)");
+        }
+
+        card.disconnect(false);
+    }
+}
+
+
+
+import javax.smartcardio.*;
+import java.util.List;
+
 public class NFCReaderFull {
 
     public static void main(String[] args) {
