@@ -1,6 +1,60 @@
 
 import java.security.KeyStore;
 import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
+public class BiHEIDWorking {
+
+    public static void main(String[] args) {
+
+        try {
+
+            // 🔥 PUTANJA DO PKCS11 LIB
+            String config =
+                    "name=eID\n" +
+                    "library=C:\\Windows\\System32\\eps2003csp11.dll\n" +
+                    "slotListIndex=0";
+
+            sun.security.pkcs11.SunPKCS11 provider =
+                    new sun.security.pkcs11.SunPKCS11(
+                            new java.io.ByteArrayInputStream(config.getBytes())
+                    );
+
+            Security.addProvider(provider);
+
+            // 🔐 KEYSTORE (traži PIN automatski)
+            KeyStore ks = KeyStore.getInstance("PKCS11", provider);
+            ks.load(null, null);
+
+            System.out.println("✅ Kartica učitana!\n");
+
+            Enumeration<String> aliases = ks.aliases();
+
+            while (aliases.hasMoreElements()) {
+
+                String alias = aliases.nextElement();
+
+                System.out.println("🔑 Alias: " + alias);
+
+                X509Certificate cert = (X509Certificate) ks.getCertificate(alias);
+
+                System.out.println("📄 Subject: " + cert.getSubjectDN());
+                System.out.println("📄 Valid until: " + cert.getNotAfter());
+
+            }
+
+        } catch (Exception e) {
+            System.out.println("❌ Greška:");
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
+import java.security.KeyStore;
+import java.security.Security;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.util.Enumeration;
