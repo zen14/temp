@@ -1,3 +1,34 @@
+
+import java.security.KeyStore;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
+public class EidWindows {
+
+    public static void main(String[] args) throws Exception {
+
+        KeyStore ks = KeyStore.getInstance("Windows-MY");
+        ks.load(null, null);
+
+        Enumeration<String> aliases = ks.aliases();
+
+        while (aliases.hasMoreElements()) {
+
+            String alias = aliases.nextElement();
+
+            X509Certificate cert =
+                    (X509Certificate) ks.getCertificate(alias);
+
+            if (cert != null) {
+
+                System.out.println("SUBJECT: " +
+                        cert.getSubjectX500Principal().getName());
+            }
+        }
+    }
+}
+
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
