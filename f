@@ -3,6 +3,97 @@ import java.util.List;
 
 public class ReadBosniaEID {
 
+    public static void main(String[] args) {
+
+        try {
+
+            TerminalFactory factory = TerminalFactory.getDefault();
+            List<CardTerminal> terminals = factory.terminals().list();
+
+            if (terminals.isEmpty()) {
+                System.out.println("❌ Nema dostupnih readera!");
+                return;
+            }
+
+            System.out.println("📡 Dostupni readeri:");
+            for (CardTerminal t : terminals) {
+                System.out.println(" - " + t.getName());
+            }
+
+            CardTerminal terminal = terminals.get(0);
+
+            System.out.println("\n📥 Čekam karticu...");
+
+            // LOOP čekanje (radi bolje nego waitForCardPresent(0))
+            while (true) {
+                if (terminal.waitForCardPresent(1000)) {
+                    System.out.println("✅ Kartica detektovana!");
+                    break;
+                }
+            }
+
+            // CONNECT (BITNO: koristi "*")
+            Card card = terminal.connect("*");
+
+            System.out.println("📇 ATR: " + bytesToHex(card.getATR().getBytes()));
+
+            CardChannel channel = card.getBasicChannel();
+
+            // =========================
+            // 🔐 SELECT AID (probni)
+            // =========================
+            byte[] AID = new byte[]{
+                    (byte) 0xA0, 0x00, 0x00, 0x00,
+                    0x77, 0x01, 0x08, 0x00
+            };
+
+            CommandAPDU select = new CommandAPDU(
+                    0x00, 0xA4, 0x04, 0x00, AID
+            );
+
+            ResponseAPDU selectResp = channel.transmit(select);
+
+            System.out.println("📤 SELECT SW: " + Integer.toHexString(selectResp.getSW()));
+
+            // =========================
+            // 📄 READ BINARY (test)
+            // =========================
+            CommandAPDU read = new CommandAPDU(
+                    0x00, 0xB0, 0x00, 0x00, 0xFF
+            );
+
+            ResponseAPDU readResp = channel.transmit(read);
+
+            System.out.println("📤 READ SW: " + Integer.toHexString(readResp.getSW()));
+            System.out.println("📄 DATA: " + bytesToHex(readResp.getData()));
+
+            card.disconnect(false);
+
+        } catch (Exception e) {
+            System.out.println("❌ Greška:");
+            e.printStackTrace();
+        }
+    }
+
+    // HEX helper
+    public static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        for (byte b : bytes) {
+            sb.append(String.format("%02X ", b));
+        }
+        return sb.toString();
+    }
+}
+
+
+
+
+
+import javax.smartcardio.*;
+import java.util.List;
+
+public class ReadBosniaEID {
+
     public static void main(String[] args) throws Exception {
 
         TerminalFactory factory = TerminalFactory.getDefault();
