@@ -1,3 +1,59 @@
+import java.io.ByteArrayInputStream;
+import java.security.KeyStore;
+import java.security.Security;
+import java.util.Enumeration;
+import sun.security.pkcs11.SunPKCS11;
+
+public class EidPKCS11 {
+
+    public static void main(String[] args) {
+
+        try {
+
+            // -------------------------
+            // PKCS11 CONFIG
+            // -------------------------
+            String config =
+                    "name=BiHEID\n" +
+                    "library=C:\\\\Windows\\\\System32\\\\eps2003csp11.dll\n" +
+                    "slotListIndex=0";
+
+            // -------------------------
+            // LOAD PROVIDER (JAVA 17 FIX)
+            // -------------------------
+            SunPKCS11 provider =
+                    new SunPKCS11(new ByteArrayInputStream(config.getBytes()));
+
+            Security.addProvider(provider);
+
+            // -------------------------
+            // KEYSTORE
+            // -------------------------
+            KeyStore ks = KeyStore.getInstance("PKCS11", provider);
+            ks.load(null, null);
+
+            System.out.println("✔ Kartica učitana");
+
+            // -------------------------
+            // LIST CERTS
+            // -------------------------
+            Enumeration<String> aliases = ks.aliases();
+
+            while (aliases.hasMoreElements()) {
+                String alias = aliases.nextElement();
+                System.out.println("Alias: " + alias);
+                System.out.println(ks.getCertificate(alias));
+                System.out.println("-------------------");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
 
 import java.security.KeyStore;
 import java.security.Security;
