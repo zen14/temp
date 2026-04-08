@@ -1,3 +1,91 @@
+
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
+public class EidNameReader {
+
+    public static void main(String[] args) {
+
+        try {
+
+            // -----------------------------
+            // PKCS#11 CONFIG (HID)
+            // -----------------------------
+            String config =
+                    "name=HIDeID\n" +
+                    "library=C:\\Windows\\System32\\eps2003csp11.dll\n" +
+                    "slotListIndex=0";
+
+            java.io.File cfg = java.io.File.createTempFile("pkcs11", ".cfg");
+            java.nio.file.Files.writeString(cfg.toPath(), config);
+
+            java.security.Provider provider =
+                    new sun.security.pkcs11.SunPKCS11(cfg.getAbsolutePath());
+
+            Security.addProvider(provider);
+
+            // -----------------------------
+            // KEYSTORE LOAD
+            // -----------------------------
+            KeyStore ks = KeyStore.getInstance("PKCS11", provider);
+            ks.load(null, null); // PIN ako treba
+
+            System.out.println("✔ Kartica učitana\n");
+
+            // -----------------------------
+            // READ CERTS
+            // -----------------------------
+            Enumeration<String> aliases = ks.aliases();
+
+            while (aliases.hasMoreElements()) {
+
+                String alias = aliases.nextElement();
+
+                X509Certificate cert =
+                        (X509Certificate) ks.getCertificate(alias);
+
+                if (cert != null) {
+
+                    String subject = cert.getSubjectX500Principal().getName();
+
+                    System.out.println("📄 SUBJECT:");
+                    System.out.println(subject);
+
+                    // -----------------------------
+                    // EXTREME SIMPLE NAME EXTRACTION
+                    // -----------------------------
+                    String name = extractCN(subject);
+
+                    System.out.println("\n👤 IME I PREZIME:");
+                    System.out.println(name);
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // ---------------------------------
+    // EXTRACT CN=NAME SURNAME
+    // ---------------------------------
+    private static String extractCN(String dn) {
+
+        for (String part : dn.split(",")) {
+            if (part.trim().startsWith("CN=")) {
+                return part.trim().substring(3);
+            }
+        }
+
+        return "Nepoznato";
+    }
+}
+
+
+
+
 import java.io.ByteArrayInputStream;
 import java.security.KeyStore;
 import java.security.Security;
