@@ -1,3 +1,78 @@
+
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
+public class BiHEID_PKCS11 {
+
+    public static void main(String[] args) {
+        try {
+
+            // 🔥 PATH DO PKCS#11 LIBRARY
+            String pkcs11Path = "C:\\Windows\\System32\\eps2003csp11.dll"; 
+            // ili opensc-pkcs11.so na Linuxu
+
+            // ----------------------------------------
+            // 1. LOAD PKCS#11 PROVIDER
+            // ----------------------------------------
+            String config =
+                    "name=BiHEID\n" +
+                    "library=" + pkcs11Path + "\n" +
+                    "slotListIndex=0";
+
+            java.io.ByteArrayInputStream configStream =
+                    new java.io.ByteArrayInputStream(config.getBytes());
+
+            sun.security.pkcs11.SunPKCS11 provider =
+                    new sun.security.pkcs11.SunPKCS11(configStream);
+
+            Security.addProvider(provider);
+
+            // ----------------------------------------
+            // 2. LOAD KEYSTORE FROM CARD
+            // ----------------------------------------
+            KeyStore ks = KeyStore.getInstance("PKCS11", provider);
+            ks.load(null, null); // PIN će se tražiti
+
+            // ----------------------------------------
+            // 3. LIST CERTIFICATES
+            // ----------------------------------------
+            Enumeration<String> aliases = ks.aliases();
+
+            while (aliases.hasMoreElements()) {
+                String alias = aliases.nextElement();
+
+                System.out.println("🔑 Alias: " + alias);
+
+                X509Certificate cert = (X509Certificate) ks.getCertificate(alias);
+                System.out.println("📄 Subject: " + cert.getSubjectDN());
+                System.out.println("📄 Issuer: " + cert.getIssuerDN());
+                System.out.println("📄 Serial: " + cert.getSerialNumber());
+
+                PrivateKey key = (PrivateKey) ks.getKey(alias, null);
+                System.out.println("🔐 Private key available: " + (key != null));
+            }
+
+            System.out.println("\n✅ eID uspješno očitan!");
+
+        } catch (Exception e) {
+            System.out.println("❌ Greška:");
+            e.printStackTrace();
+        }
+    }
+}
+
+
+<dependencies>
+    <dependency>
+        <groupId>org.bouncycastle</groupId>
+        <artifactId>bcprov-jdk18on</artifactId>
+        <version>1.78</version>
+    </dependency>
+</dependencies>
+
 import javax.smartcardio.*;
 import java.util.List;
 
