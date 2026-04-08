@@ -1,3 +1,57 @@
+
+===========================================
+  BiH eID Reader v4  |  ICAO eMRTD + BAC
+===========================================
+
+Unesite podatke sa MRZ zone lične karte (donji dio):
+(Ako ne znate MRZ format, pogledajte UPUTE ispod)
+
+Broj dokumenta (9 znakova, npr: BA1234567): 1E181TKT6
+Datum rođenja  (YYMMDD, npr: 900115 za 15.01.1990): 931113
+Datum isteka   (YYMMDD, npr: 281031 za 31.10.2028): 340917
+
+MRZ unos:
+  Broj dok : 1E181TKT6
+  Datum rod: 931113
+  Istice   : 340917
+  Check dig: 1 / 6 / 6
+
+Čitač: HID Global OMNIKEY 5422CL Smartcard Reader 0
+ATR: 3B 88 80 01 42 41 45 49 44 32 2E 30 6E
+
+--- SELECT eMRTD aplikacije ---
+AID A0 00 00 02 47 10 01 -> SW=9000
+  ✓ Aplikacija selektovana!
+
+--- BAC autentifikacija ---
+MRZ info za BAC: 1E181TKT6193111363409176
+Kenc: AB 7C B3 B5 46 85 B9 3B D6 D3 29 07 91 DA 94 8A
+Kmac: D9 40 A7 F1 C4 10 8C 0D 13 7A 15 94 73 19 7A E3
+RND.IC: AA A3 9B B1 71 F6 62 DA
+EXTERNAL AUTHENTICATE SW=9000
+Auth resp: 81 49 4F B7 0F 82 1C C6 E7 92 F4 04 05 8D 5D BB F3 42 F5 76 B0 80 25 E4 F2 1D 33 21 1A 30 95 B0 9C AB 18 21 2E 73 F1 32
+BAC uspješan!
+Session Kenc: F2 70 EC 94 B6 10 A8 6E F1 67 DA 7F C2 D9 7C 16
+Session Kmac: 6D 9B 15 26 4F 16 CE D0 37 29 FE 2F DA E5 5B E3
+SSC: 8211859659182020168
+
+--- Čitanje EF.COM (lista dostupnih DG-ova) ---
+SELECT EF 011E -> SW=6988
+
+--- Čitanje DG1 (MRZ podaci) ---
+SELECT EF 0101 -> SW=6985
+
+--- Čitanje DG11 (Dodatni lični podaci) ---
+SELECT EF 010B -> SW=6985
+
+--- Čitanje DG12 (Podaci dokumenta) ---
+SELECT EF 010C -> SW=6985
+
+--- Čitanje DG2 (Fotografija) ---
+SELECT EF 0102 -> SW=6985
+
+=== Završeno ===
+
 import javax.smartcardio.*;
 import javax.crypto.*;
 import javax.crypto.spec.*;
