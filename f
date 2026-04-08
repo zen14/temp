@@ -1,3 +1,71 @@
+
+import java.security.KeyStore;
+import java.security.Security;
+import java.security.cert.X509Certificate;
+import java.util.Enumeration;
+
+public class EIDJava17Fixed {
+
+    public static void main(String[] args) {
+
+        try {
+
+            // -----------------------------
+            // 1. PKCS#11 CONFIG FILE
+            // -----------------------------
+            String cfg =
+                    "name=BiHEID\n" +
+                    "library=C:\\Windows\\System32\\eps2003csp11.dll\n" +
+                    "slotListIndex=0";
+
+            java.nio.file.Path cfgPath =
+                    java.nio.file.Files.createTempFile("pkcs11", ".cfg");
+
+            java.nio.file.Files.writeString(cfgPath, cfg);
+
+            // -----------------------------
+            // 2. LOAD PROVIDER (NO sun.*)
+            // -----------------------------
+            java.security.Provider provider =
+                    new sun.security.pkcs11.SunPKCS11(cfgPath.toString());
+
+            Security.addProvider(provider);
+
+            // -----------------------------
+            // 3. KEYSTORE LOAD
+            // -----------------------------
+            KeyStore ks = KeyStore.getInstance("PKCS11", provider);
+            ks.load(null, null); // PIN prompt
+
+            System.out.println("✅ eID učitan\n");
+
+            // -----------------------------
+            // 4. READ CERTIFICATES
+            // -----------------------------
+            Enumeration<String> aliases = ks.aliases();
+
+            while (aliases.hasMoreElements()) {
+
+                String alias = aliases.nextElement();
+
+                X509Certificate cert =
+                        (X509Certificate) ks.getCertificate(alias);
+
+                if (cert != null) {
+                    System.out.println("🔑 " + alias);
+                    System.out.println("👤 " + cert.getSubjectDN());
+                    System.out.println("----------------------");
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
 import java.io.FileInputStream;
 import java.security.KeyStore;
 import java.security.Security;
