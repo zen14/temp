@@ -1,4 +1,188 @@
 
+import javax.smartcardio.*;
+import java.security.KeyStore;
+import java.security.cert.X509Certificate;
+import java.util.*;
+
+public class EidNfcReader {
+
+    public static void main(String[] args) throws Exception {
+
+        System.out.println("=================================");
+        System.out.println("📡 Čekam NFC ličnu kartu...");
+        System.out.println("=================================\n");
+
+        TerminalFactory factory = TerminalFactory.getDefault();
+        List<CardTerminal> terminals = factory.terminals().list();
+
+        if (terminals.isEmpty()) {
+            System.out.println("❌ NEMA ČITAČA");
+            return;
+        }
+
+        CardTerminal terminal = null;
+
+        // -----------------------------------
+        // NAĐI OMNIKEY (ili prvi dostupni)
+        // -----------------------------------
+        for (CardTerminal t : terminals) {
+            System.out.println("Reader: " + t.getName());
+
+            if (t.getName().toLowerCase().contains("omnikey")) {
+                terminal = t;
+            }
+        }
+
+        if (terminal == null) {
+            terminal = terminals.get(0);
+        }
+
+        System.out.println("\n✔ Koristim: " + terminal.getName());
+
+        // -----------------------------------
+        // LOOP - ČEKA KARTICU
+        // -----------------------------------
+        while (true) {
+
+            terminal.waitForCardPresent(0);
+
+            System.out.println("\n📇 Kartica detektovana!");
+
+            try {
+                readEidFromWindowsStore();
+            } catch (Exception e) {
+                System.out.println("❌ Greška:");
+                e.printStackTrace();
+            }
+
+            // čekaj da se kartica ukloni
+            terminal.waitForCardAbsent(0);
+
+            System.out.println("\n📤 Kartica uklonjena");
+            System.out.println("\n📡 Čekam novu karticu...");
+        }
+    }
+
+    // -----------------------------------
+    // ČITANJE CERTA (SAMO KAD JE KARTICA PRISUTNA)
+    // -----------------------------------
+    private static void readEidFromWindowsStore() throws Exception {
+
+        KeyStore ks = KeyStore.getInstance("Windows-MY");
+        ks.load(null, null);
+
+        Enumeration<String> aliases = ks.aliases();
+
+        boolean found = false;
+
+        while (aliases.hasMoreElements()) {
+
+            String alias = aliases.nextElement();
+
+            X509Certificate cert =
+                    (X509Certificate) ks.getCertificate(alias);
+
+            if (cert == null) continue;
+
+            if (!isEid(cert)) continue;
+
+            found = true;
+
+            System.out.println("=================================");
+            System.out.println("📇 eID CERT (SA KARTICE)");
+            System.out.println("=================================");
+
+            Map<String, String> user = parseUser(cert);
+
+            System.out.println("Ime: " + user.get("2.5.4.42"));
+            System.out.println("Prezime: " + user.get("2.5.4.4"));
+
+            System.out.println("\nSubject:");
+            System.out.println(cert.getSubjectX500Principal().getName());
+        }
+
+        if (!found) {
+            System.out.println("⚠ Nije pronađen eID cert (provjeri PIN / middleware)");
+        }
+    }
+
+    // -----------------------------------
+    // FILTER ZA BIH eID
+    // -----------------------------------
+    private static boolean isEid(X509Certificate cert) {
+
+        String issuer = cert.getIssuerX500Principal().getName();
+
+        return issuer.contains("IDDEEA") || issuer.contains("iddeea");
+    }
+
+    // -----------------------------------
+    // PARSER (OID + HEX)
+    // -----------------------------------
+    private static Map<String, String> parseUser(X509Certificate cert) {
+
+        Map<String, String> map = new HashMap<>();
+
+        String dn = cert.getSubjectX500Principal().getName();
+
+        String[] parts = dn.split(",");
+
+        for (String part : parts) {
+
+            part = part.trim();
+
+            if (part.contains("#")) {
+
+                String[] kv = part.split("=");
+
+                if (kv.length == 2) {
+                    map.put(kv[0], decodeHex(kv[1].replace("#", "")));
+                }
+
+            } else {
+
+                String[] kv = part.split("=");
+
+                if (kv.length == 2) {
+                    map.put(kv[0], kv[1]);
+                }
+            }
+        }
+
+        return map;
+    }
+
+    // -----------------------------------
+    // HEX → STRING
+    // -----------------------------------
+    private static String decodeHex(String hex) {
+
+        try {
+
+            byte[] data = new byte[hex.length() / 2];
+
+            for (int i = 0; i < data.length; i++) {
+                data[i] = (byte) Integer.parseInt(
+                        hex.substring(i * 2, i * 2 + 2), 16);
+            }
+
+            if (data.length > 2 && data[0] == 0x0C) {
+                byte[] real = new byte[data.length - 2];
+                System.arraycopy(data, 2, real, 0, real.length);
+                return new String(real, "UTF-8");
+            }
+
+            return new String(data, "UTF-8");
+
+        } catch (Exception e) {
+            return "DECODE_ERROR";
+        }
+    }
+}
+
+
+
+
 import java.security.KeyStore;
 import java.security.cert.X509Certificate;
 import java.util.Enumeration;
