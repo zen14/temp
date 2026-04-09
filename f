@@ -1,3 +1,153 @@
+
+===========================================
+  BiH eID Reader v7  |  ICAO eMRTD + BAC
+===========================================
+
+Broj dokumenta (9 znakova): 1E181TKT6
+Datum rodjenja (YYMMDD): 931113
+Datum isteka   (YYMMDD): 340917
+MRZ info: 1E181TKT6193111363409176
+ATR: 3B8880014241454944322E306E
+SELECT AID SW=9000
+
+--- BAC ---
+EXT AUTH SW=9000
+BAC MAC OK: true
+SSC:    9E126CA4BD72FB3E
+KS_ENC: 383DC44973753E46C78F19732023F849
+KS_MAC: 019752616197EF34981AEABC34757C73
+BAC OK!
+
+========================================
+  ČITANJE SVIH DOSTUPNIH PODATAKA
+========================================
+
+--- EF.COM (Lista DG-ova) (EF 011E) ---
+  SM-SEL >> 0CA4020C0E8102011E8E084552DEC5BC857A1400
+  SM-SEL << SW=6987
+  SELECT 011E -> SW=6987
+  (nije dostupno ili prazno)
+
+--- EF.SOD (Digitalni potpis / Certifikat) (EF 011D) ---
+  SM-SEL >> 0CA4020C0E8102011D8E0862177F86C4A7AFDF00
+  SM-SEL << SW=6985
+  SELECT 011D -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG1  - MRZ podaci (EF 0101) ---
+  SM-SEL >> 0CA4020C0E810201018E087149B64C23AAA92D00
+  SM-SEL << SW=6985
+  SELECT 0101 -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG2  - Fotografija lica (EF 0102) ---
+  SM-SEL >> 0CA4020C0E810201028E0868A949200790E6AB00
+  SM-SEL << SW=6985
+  SELECT 0102 -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG3  - Otisci prstiju (EF 0103) ---
+  SM-SEL >> 0CA4020C0E810201038E08F57D925C093D964700
+  SM-SEL << SW=6985
+  SELECT 0103 -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG4  - Slika šarenice (EF 0104) ---
+  SM-SEL >> 0CA4020C0E810201048E0832504FFCC0EB563C00
+  SM-SEL << SW=6985
+  SELECT 0104 -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG5  - Prikazna fotografija (EF 0105) ---
+  SM-SEL >> 0CA4020C0E810201058E0849E2E1BE257C455C00
+  SM-SEL << SW=6985
+  SELECT 0105 -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG6  - Rezervisano (EF 0106) ---
+  SM-SEL >> 0CA4020C0E810201068E0836C170DAF05025FC00
+  SM-SEL << SW=6985
+  SELECT 0106 -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG7  - Slika potpisa (EF 0107) ---
+  SM-SEL >> 0CA4020C0E810201078E08B1BC1E19C101A55B00
+  SM-SEL << SW=6985
+  SELECT 0107 -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG8  - Podaci o čitanju (EF 0108) ---
+  SM-SEL >> 0CA4020C0E810201088E080C7E5F433AB8FC1A00
+  SM-SEL << SW=6985
+  SELECT 0108 -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG9  - Struktura (EF 0109) ---
+  SM-SEL >> 0CA4020C0E810201098E08FA84CF4D7C5BA1CA00
+  SM-SEL << SW=6985
+  SELECT 0109 -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG10 - Elementi (EF 010A) ---
+  SM-SEL >> 0CA4020C0E8102010A8E085D1F4B2F80F7062600
+  SM-SEL << SW=6985
+  SELECT 010A -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG11 - Lični podaci (ime, adresa...) (EF 010B) ---
+  SM-SEL >> 0CA4020C0E8102010B8E0868C798483939ABB500
+  SM-SEL << SW=6985
+  SELECT 010B -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG12 - Podaci dokumenta (EF 010C) ---
+  SM-SEL >> 0CA4020C0E8102010C8E08A7D62CEE4B369F1F00
+  SM-SEL << SW=6985
+  SELECT 010C -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG13 - Vendor podaci (EF 010D) ---
+  SM-SEL >> 0CA4020C0E8102010D8E089761B93DCE322C6A00
+  SM-SEL << SW=6985
+  SELECT 010D -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG14 - Security Options (EAC info) (EF 010E) ---
+  SM-SEL >> 0CA4020C0E8102010E8E082E56841E12A87E0400
+  SM-SEL << SW=6985
+  SELECT 010E -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG15 - Active Auth Public Key (EF 010F) ---
+  SM-SEL >> 0CA4020C0E8102010F8E084EBCF12242A96D7100
+  SM-SEL << SW=6985
+  SELECT 010F -> SW=6985
+  (nije dostupno ili prazno)
+
+--- DG16 - Kontakt osobe (EF 0110) ---
+  SM-SEL >> 0CA4020C0E810201108E08BD3A4C364277255F00
+  SM-SEL << SW=6985
+  SELECT 0110 -> SW=6985
+  (nije dostupno ili prazno)
+
+--- EF.CardAccess (PACE) ---
+  SM-SEL >> 0CA4020C0E8102011C8E0834764085CD6961F300
+  SM-SEL << SW=6985
+  SELECT 011C -> SW=6985
+
+--- EF.CardSecurity ---
+  SM-SEL >> 0CA4020C0E8102011B8E082DB882F6406B942000
+  SM-SEL << SW=6985
+  SELECT 011B -> SW=6985
+
+========================================
+  SAŽETAK PROČITANIH PODATAKA
+========================================
+Svi fajlovi snimljeni kao ef_XXXX.bin
+
+=== Završeno ===
+
+
 import javax.smartcardio.*;
 import javax.crypto.*;
 import javax.crypto.spec.*;
