@@ -1,3 +1,67 @@
+import org.jmrtd.BACKey;
+import org.jmrtd.PassportService;
+import org.jmrtd.lds.icao.DG1File;
+import org.jmrtd.lds.icao.MRZInfo;
+
+import javax.smartcardio.*;
+import java.util.List;
+
+public class BACExample {
+
+    public static void main(String[] args) {
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+            CardTerminal terminal = factory.terminals().list().get(0);
+
+            System.out.println("Reader: " + terminal.getName());
+            terminal.waitForCardPresent(0);
+
+            Card card = terminal.connect("*");
+
+            PassportService service =
+                    new PassportService(card, 256, 224, false, false);
+
+            service.open();
+
+            // 🔐 BAC podaci
+            String documentNumber = "C1234567<";
+            String dateOfBirth = "900101";
+            String dateOfExpiry = "300101";
+
+            BACKey bacKey = new BACKey(
+                    documentNumber,
+                    dateOfBirth,
+                    dateOfExpiry
+            );
+
+            // ✅ BAC autentikacija
+            service.doBAC(bacKey);
+            System.out.println("BAC uspješan!");
+
+            // selektuj aplikaciju
+            service.sendSelectApplet(true);
+
+            // čitaj DG1
+            DG1File dg1 = new DG1File(
+                    service.getInputStream(PassportService.EF_DG1)
+            );
+
+            MRZInfo mrz = dg1.getMRZInfo();
+
+            System.out.println("Ime: " + mrz.getSecondaryIdentifier());
+            System.out.println("Prezime: " + mrz.getPrimaryIdentifier());
+            System.out.println("Broj: " + mrz.getDocumentNumber());
+
+            card.disconnect(false);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
 ===========================================
   BiH eID Reader v11 |  SM Variant Test
 ===========================================
