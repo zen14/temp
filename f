@@ -1,3 +1,114 @@
+===========================================
+  BiH eID Reader v10 |  ICAO eMRTD + BAC
+===========================================
+
+Broj dokumenta (9 znakova): 1E181TKT6
+Datum rodjenja (YYMMDD): 931113
+Datum isteka   (YYMMDD): 340917
+MRZ: 1E181TKT6193111363409176
+ATR: 3B8880014241454944322E306E
+SELECT AID SW=9000
+--- BAC ---
+EXT AUTH SW=9000
+MAC OK: true
+KS_ENC: 68B046CB38E36B80736BCD8379AE5BE6
+KS_MAC: 46DA583B5237F2C8A73E3DE3C4233834
+SSC:    45119DCFC1EA4D88
+BAC OK!
+
+========================================
+  ČITANJE SVIH DOSTUPNIH PODATAKA
+========================================
+
+--- EF.COM  – Lista DG-ova (EF 011E) ---
+  >> 0CA4020C15870901882641E53AB589A48E08876B9398B22BDABE00
+  << SW=6988  data=(empty)
+  SELECT 011E → SW=6988
+  – nije dostupno
+
+--- EF.SOD  – Digitalni potpis / certifikat (EF 011D) ---
+  >> 0CA4020C15870901068E5C32E9193B028E0873B4C171EBC1FCF400
+  << SW=6985  data=(empty)
+  SELECT 011D → SW=6985
+  – nije dostupno
+
+--- DG1     – MRZ podaci (EF 0101) ---
+  >> 0CA4020C15870901FB9B1CCBA6E117058E08A4558A37EEDB32CF00
+  << SW=6985  data=(empty)
+  SELECT 0101 → SW=6985
+  – nije dostupno
+
+--- DG2     – Fotografija lica (EF 0102) ---
+  >> 0CA4020C15870901FCA3E823DF3CF69E8E088C489BBC482D63FD00
+  << SW=6985  data=(empty)
+  SELECT 0102 → SW=6985
+  – nije dostupno
+
+--- DG3     – Otisci prstiju (EF 0103) ---
+  >> 0CA4020C158709018216938D3E385E808E08F0F0F1428E3EAA8800
+  << SW=6985  data=(empty)
+  SELECT 0103 → SW=6985
+  – nije dostupno
+
+--- DG5     – Prikazna fotografija (EF 0105) ---
+  >> 0CA4020C158709012D4DD00E172F9DC18E08A2A6A3556F3ACE3700
+  << SW=6985  data=(empty)
+  SELECT 0105 → SW=6985
+  – nije dostupno
+
+--- DG7     – Slika potpisa (EF 0107) ---
+  >> 0CA4020C15870901032EB52B0CB049C58E086C51ACE30855661200
+  << SW=6985  data=(empty)
+  SELECT 0107 → SW=6985
+  – nije dostupno
+
+--- DG11    – Lični podaci (ime, adresa…) (EF 010B) ---
+  >> 0CA4020C158709014CD9E299FD7378198E08D49C6FE1B8D4540100
+  << SW=6985  data=(empty)
+  SELECT 010B → SW=6985
+  – nije dostupno
+
+--- DG12    – Podaci o dokumentu (EF 010C) ---
+  >> 0CA4020C15870901DE2D9A7D20E8D9F88E0871EC3B7A33BEE30800
+  << SW=6985  data=(empty)
+  SELECT 010C → SW=6985
+  – nije dostupno
+
+--- DG13    – Vendor podaci (EF 010D) ---
+  >> 0CA4020C158709011801B2226DF510A98E0845F1C1622938166C00
+  << SW=6985  data=(empty)
+  SELECT 010D → SW=6985
+  – nije dostupno
+
+--- DG14    – EAC Security Options (EF 010E) ---
+  >> 0CA4020C1587090125AE2E7DA3CF36618E08BF2994D76004E0F100
+  << SW=6985  data=(empty)
+  SELECT 010E → SW=6985
+  – nije dostupno
+
+--- DG15    – Active Auth Public Key (EF 010F) ---
+  >> 0CA4020C158709017028AE1C253E06068E08696818FA8A70109C00
+  << SW=6985  data=(empty)
+  SELECT 010F → SW=6985
+  – nije dostupno
+
+--- DG16    – Kontakt osobe (EF 0110) ---
+  >> 0CA4020C15870901B7350F00775D73608E082F0BC0B6E994077100
+  << SW=6985  data=(empty)
+  SELECT 0110 → SW=6985
+  – nije dostupno
+
+========================================
+  SAŽETAK
+========================================
+  Nijedan fajl nije pročitan.
+
+=== Završeno ===
+
+Process finished with exit code 0
+
+
+
 import javax.smartcardio.*;
 import javax.crypto.*;
 import javax.crypto.spec.*;
