@@ -1,3 +1,79 @@
+
+import org.jmrtd.BACKey;
+import org.jmrtd.PassportService;
+import net.sf.scuba.smartcards.CardService;
+
+import javax.smartcardio.*;
+import java.util.List;
+
+public class SmartCardAutoReader {
+
+    public static void main(String[] args) {
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+            List<CardTerminal> terminals = factory.terminals().list();
+
+            if (terminals.isEmpty()) {
+                System.out.println("❌ Nema readera");
+                return;
+            }
+
+            CardTerminal terminal = terminals.get(0);
+            System.out.println("Reader: " + terminal.getName());
+
+            while (true) {
+                System.out.println("⏳ Čekam karticu...");
+                terminal.waitForCardPresent(0);
+
+                try {
+                    Card card = terminal.connect("*");
+
+                    System.out.println("✅ Kartica detektovana");
+
+                    // 🔑 Wrapper
+                    CardService cs = CardService.getInstance(card);
+
+                    PassportService service =
+                            new PassportService(cs, 256, 224, false, false);
+
+                    service.open();
+
+                    // 🔐 BAC podaci (zamijeni stvarnim)
+                    BACKey bacKey = new BACKey(
+                            "C1234567<",
+                            "900101",
+                            "300101"
+                    );
+
+                    try {
+                        service.doBAC(bacKey);
+                        System.out.println("✅ BAC OK");
+                    } catch (Exception e) {
+                        System.out.println("⚠️ BAC nije uspio");
+                    }
+
+                    service.sendSelectApplet(true);
+
+                    System.out.println("📡 Komunikacija OK");
+
+                    card.disconnect(false);
+
+                } catch (Exception e) {
+                    System.out.println("❌ Greška: " + e.getMessage());
+                }
+
+                terminal.waitForCardAbsent(0);
+                System.out.println("🔄 Kartica uklonjena\n");
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
 import org.jmrtd.BACKey;
 import org.jmrtd.PassportService;
 import org.jmrtd.lds.icao.DG1File;
