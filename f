@@ -1,3 +1,48 @@
+import org.jmrtd.PassportService;
+import net.sf.scuba.smartcards.CardService;
+
+import javax.smartcardio.*;
+
+public class FixReader {
+
+    public static void main(String[] args) {
+        try {
+            TerminalFactory factory = TerminalFactory.getDefault();
+            CardTerminal terminal = factory.terminals().list().get(0);
+
+            terminal.waitForCardPresent(0);
+
+            Card card = terminal.connect("*");
+
+            // 🔥 KLJUČNI FIX
+            CardService cs = CardService.getInstance(card);
+
+            PassportService ps =
+                    new PassportService(cs, 256, 224, false, false);
+
+            ps.open();
+
+            System.out.println("✅ PassportService otvoren");
+
+            ps.sendSelectApplet(true);
+
+            System.out.println("📡 Applet OK");
+
+            card.disconnect(false);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+<dependency>
+    <groupId>net.sf.scuba</groupId>
+    <artifactId>scuba-smartcards</artifactId>
+    <version>0.0.20</version>
+</dependency>
+
+
 
 import org.jmrtd.BACKey;
 import org.jmrtd.PassportService;
