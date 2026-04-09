@@ -1,3 +1,459 @@
+import javax.smartcardio.*;
+import javax.crypto.*;
+import javax.crypto.spec.*;
+import java.security.*;
+import java.util.*;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+
+/**
+ * BiH eID Reader v10
+ *
+ * ISPRAVKA: MAC input = isopad(SSC) || isopad(hdr) || do87 || do97
+ *           SSC mora biti ISO-padovan (8→16 bajta)!
+ *
+ * Ref: ICAO 9303-11 Appendix D.4 primjer:
+ *   M = [SSC 8B][pad 8B] || [hdr 4B][pad 4B] || DO'97...
+ *
+ * Kompajliranje: javac BihEidReader.java
+ * Pokretanje:    java BihEidReader
+ */
+public class BihEidReader {
+
+    static byte[] KS_ENC, KS_MAC, SSC = new byte[8];
+
+    public static void main(String[] args) throws Exception {
+        System.out.println("===========================================");
+        System.out.println("  BiH eID Reader v10 |  ICAO eMRTD + BAC");
+        System.out.println("===========================================\n");
+
+        Scanner sc = new Scanner(System.in);
+        System.out.print("Broj dokumenta (9 znakova): ");
+        String docNum = sc.nextLine().trim().toUpperCase();
+        System.out.print("Datum rodjenja (YYMMDD): ");
+        String dob = sc.nextLine().trim();
+        System.out.print("Datum isteka   (YYMMDD): ");
+        String expiry = sc.nextLine().trim();
+
+        while (docNum.length() < 9) docNum += "<";
+        docNum = docNum.substring(0, 9);
+        String mrzInfo = docNum + cd(docNum) + dob + cd(dob) + expiry + cd(expiry);
+        System.out.println("MRZ: " + mrzInfo);
+
+        // --- Spajanje ---
+        TerminalFactory fac = TerminalFactory.getDefault();
+        List<CardTerminal> terms = fac.terminals().list();
+        CardTerminal term = null;
+        for (CardTerminal t : terms) if (t.isCardPresent()) { term = t; break; }
+        if (term == null) { terms.get(0).waitForCardPresent(15000); term = terms.get(0); }
+        Card card = term.connect("*");
+        CardChannel ch = card.getBasicChannel();
+        System.out.println("ATR: " + h(card.getATR().getBytes()));
+
+        // SELECT eMRTD AID
+        send(ch, "00A4040C07A0000002471001", "SELECT AID");
+
+        // BAC
+        doBAC(ch, mrzInfo);
+
+        // Čitaj sve
+        readAll(ch);
+
+        card.disconnect(false);
+        System.out.println("\n=== Završeno ===");
+    }
+
+    // ================================================================
+    // ČITANJE SVIH DOSTUPNIH PODATAKA
+    // ================================================================
+    static void readAll(CardChannel ch) throws Exception {
+        System.out.println("\n========================================");
+        System.out.println("  ČITANJE SVIH DOSTUPNIH PODATAKA");
+        System.out.println("========================================");
+
+        int[] fids   = { 0x011E, 0x011D, 0x0101, 0x0102, 0x0103, 0x0105,
+                         0x0107, 0x010B, 0x010C, 0x010D, 0x010E, 0x010F, 0x0110 };
+        String[] names = {
+            "EF.COM  – Lista DG-ova",
+            "EF.SOD  – Digitalni potpis / certifikat",
+            "DG1     – MRZ podaci",
+            "DG2     – Fotografija lica",
+            "DG3     – Otisci prstiju",
+            "DG5     – Prikazna fotografija",
+            "DG7     – Slika potpisa",
+            "DG11    – Lični podaci (ime, adresa…)",
+            "DG12    – Podaci o dokumentu",
+            "DG13    – Vendor podaci",
+            "DG14    – EAC Security Options",
+            "DG15    – Active Auth Public Key",
+            "DG16    – Kontakt osobe"
+        };
+
+        Map<String, byte[]> found = new LinkedHashMap<>();
+
+        for (int i = 0; i < fids.length; i++) {
+            System.out.printf("%n--- %s (EF %04X) ---%n", names[i], fids[i]);
+            byte[] data = readEF(ch, fids[i]);
+            if (data != null && data.length > 0) {
+                found.put(names[i], data);
+                System.out.printf("  ✓  %d bajta%n", data.length);
+                saveFile(data, String.format("ef_%04X.bin", fids[i]));
+                switch (fids[i]) {
+                    case 0x011E: parseEFCOM(data);   break;
+                    case 0x011D: parseSOD(data);     break;
+                    case 0x0101: parseDG1(data);     break;
+                    case 0x0102: savePhoto(data,"face");  break;
+                    case 0x0107: savePhoto(data,"sign");  break;
+                    default:     parseTLV(data, "  "); break;
+                }
+            } else {
+                System.out.println("  – nije dostupno");
+            }
+        }
+
+        // Sažetak
+        System.out.println("\n========================================");
+        System.out.println("  SAŽETAK");
+        System.out.println("========================================");
+        if (found.isEmpty()) {
+            System.out.println("  Nijedan fajl nije pročitan.");
+        } else {
+            for (Map.Entry<String, byte[]> e : found.entrySet())
+                System.out.printf("  ✓ %-40s %5d bajta%n", e.getKey(), e.getValue().length);
+            System.out.println("\n  Fajlovi snimljeni kao ef_XXXX.bin");
+        }
+    }
+
+    // ================================================================
+    // ČITANJE EF FAJLA
+    // ================================================================
+    static byte[] readEF(CardChannel ch, int fid) throws Exception {
+        byte hi = (byte)(fid >> 8), lo = (byte)(fid & 0xFF);
+
+        // SELECT
+        ResponseAPDU sel = smSend(ch, (byte)0xA4, (byte)0x02, (byte)0x0C,
+                                   new byte[]{hi, lo}, false);
+        System.out.printf("  SELECT %04X → SW=%04X%n", fid, sel.getSW());
+        if (sel.getSW() != 0x9000) return null;
+
+        // READ BINARY
+        List<Byte> all = new ArrayList<>();
+        int offset = 0;
+        while (true) {
+            ResponseAPDU rb = smSend(ch, (byte)0xB0,
+                (byte)((offset >> 8) & 0x7F), (byte)(offset & 0xFF),
+                null, true);
+            int sw = rb.getSW();
+            if (sw == 0x9000) {
+                byte[] d = rb.getData();
+                if (d.length == 0) break;
+                for (byte b : d) all.add(b);
+                offset += d.length;
+                if (d.length < 0xDF) break;
+            } else if ((sw & 0xFF00) == 0x6C00) {
+                // kartica kaže točnu veličinu, ali nastavimo samo
+            } else {
+                System.out.printf("  READ err SW=%04X @ offset=%d%n", sw, offset);
+                break;
+            }
+        }
+        byte[] res = new byte[all.size()];
+        for (int k = 0; k < res.length; k++) res[k] = all.get(k);
+        return res.length > 0 ? res : null;
+    }
+
+    // ================================================================
+    // SECURE MESSAGING  (ICAO 9303-11, tačan MAC input)
+    // ================================================================
+    static ResponseAPDU smSend(CardChannel ch, byte ins, byte p1, byte p2,
+                                byte[] cmdData, boolean expectResp) throws Exception {
+        // 1. Inkrement SSC
+        incSSC();
+
+        // 2. IV = E(KS_ENC, SSC)  — ECB enkriptovani SSC
+        byte[] IV = tdes_ecb(KS_ENC, SSC);
+
+        // 3. DO'87 — enkriptovani command data (ako postoji)
+        byte[] do87 = new byte[0];
+        if (cmdData != null && cmdData.length > 0) {
+            byte[] enc = tdes_cbc(KS_ENC, IV, isopad(cmdData));
+            do87 = tlv(0x87, cat(new byte[]{0x01}, enc));
+        }
+
+        // 4. DO'97 — Le (ako se očekuje odgovor)
+        byte[] do97 = expectResp ? new byte[]{(byte)0x97, 0x01, 0x00} : new byte[0];
+
+        // 5. Header
+        byte[] hdr = {(byte)0x0C, ins, p1, p2};
+
+        // 6. MAC input = isopad(SSC) || isopad(hdr) || do87 || do97
+        //    KRITIČNO: SSC se ISO-paduje (8 → 16 bajta)!
+        byte[] M = cat(isopad(SSC), isopad(hdr), do87, do97);
+
+        // 7. Retail MAC, DO'8E
+        byte[] CC  = mac3(KS_MAC, M);
+        byte[] do8E = tlv(0x8E, CC);
+
+        // 8. Finalni APDU
+        byte[] body = cat(do87, do97, do8E);
+        byte[] apdu = cat(
+            new byte[]{(byte)0x0C, ins, p1, p2, (byte)body.length},
+            body,
+            new byte[]{0x00}   // Le
+        );
+
+        System.out.println("  >> " + h(apdu));
+        ResponseAPDU resp = ch.transmit(new CommandAPDU(apdu));
+        System.out.printf("  << SW=%04X  data=%s%n", resp.getSW(), h(resp.getData()));
+
+        if (resp.getSW() == 0x9000 && resp.getData().length > 0)
+            return smDecrypt(resp.getData());
+        return resp;
+    }
+
+    static ResponseAPDU smDecrypt(byte[] respData) throws Exception {
+        incSSC();
+        byte[] IV = tdes_ecb(KS_ENC, SSC);
+
+        byte[] v87=null, v99=null, v8E=null;
+        int i = 0;
+        while (i < respData.length) {
+            int tag = respData[i++] & 0xFF;
+            if (tag == 0 || tag == 0xFF) continue;
+            if ((tag & 0x1F) == 0x1F && i < respData.length)
+                tag = (tag << 8) | (respData[i++] & 0xFF);
+            if (i >= respData.length) break;
+            int len = respData[i++] & 0xFF;
+            if (len == 0x81 && i < respData.length) len = respData[i++] & 0xFF;
+            else if (len == 0x82 && i+1 < respData.length) {
+                len = ((respData[i]&0xFF)<<8)|(respData[i+1]&0xFF); i+=2;
+            }
+            if (i+len > respData.length) break;
+            byte[] val = Arrays.copyOfRange(respData, i, i+len); i += len;
+            int t = tag & 0xFF;
+            if      (t == 0x87) v87 = val;
+            else if (t == 0x99) v99 = val;
+            else if (t == 0x8E) v8E = val;
+        }
+
+        // Verifikuj MAC: isopad(SSC) || tlv(87,v87) || tlv(99,v99)
+        byte[] macIn = isopad(SSC);
+        if (v87 != null) macIn = cat(macIn, tlv(0x87, v87));
+        if (v99 != null) macIn = cat(macIn, tlv(0x99, v99));
+        byte[] exp = mac3(KS_MAC, macIn);
+        if (!Arrays.equals(exp, v8E))
+            System.out.println("  WARN: MAC mismatch exp="+h(exp)+" got="+h(v8E));
+
+        // Dekriptuj DO'87
+        byte[] plain = new byte[0];
+        if (v87 != null) {
+            byte[] cipher = Arrays.copyOfRange(v87, 1, v87.length);
+            plain = isounpad(tdes_cbc_dec(KS_ENC, IV, cipher));
+        }
+
+        int sw = v99 != null ? ((v99[0]&0xFF)<<8)|(v99[1]&0xFF) : 0x9000;
+        byte[] full = new byte[plain.length + 2];
+        System.arraycopy(plain, 0, full, 0, plain.length);
+        full[plain.length]   = (byte)(sw >> 8);
+        full[plain.length+1] = (byte)(sw & 0xFF);
+        return new ResponseAPDU(full);
+    }
+
+    // ================================================================
+    // BAC
+    // ================================================================
+    static void doBAC(CardChannel ch, String mrzInfo) throws Exception {
+        System.out.println("--- BAC ---");
+        byte[] kseed = Arrays.copyOf(sha1(mrzInfo.getBytes(StandardCharsets.UTF_8)), 16);
+        byte[] kenc  = kdf(kseed, 1);
+        byte[] kmac  = kdf(kseed, 2);
+
+        ResponseAPDU gc = ch.transmit(new CommandAPDU(x("0084000008")));
+        if (gc.getSW() != 0x9000) throw new Exception("GET CHALLENGE: " + sw(gc));
+        byte[] RND_IC  = gc.getData();
+        byte[] RND_IFD = new byte[8]; new SecureRandom().nextBytes(RND_IFD);
+        byte[] K_IFD   = new byte[16]; new SecureRandom().nextBytes(K_IFD);
+
+        byte[] EIFD = tdes_cbc(kenc, new byte[8], cat(RND_IFD, RND_IC, K_IFD));
+        byte[] MIFD = mac3(kmac, EIFD);
+        byte[] ea   = cat(new byte[]{0x00,(byte)0x82,0x00,0x00,0x28}, cat(EIFD,MIFD), new byte[]{0x28});
+        ResponseAPDU ar = ch.transmit(new CommandAPDU(ea));
+        System.out.printf("EXT AUTH SW=%04X%n", ar.getSW());
+        if (ar.getSW() != 0x9000) throw new Exception("BAC failed");
+
+        byte[] R    = ar.getData();
+        byte[] dec  = tdes_cbc_dec(kenc, new byte[8], Arrays.copyOf(R, 32));
+        byte[] K_IC = Arrays.copyOfRange(dec, 16, 32);
+        System.out.println("MAC OK: " + Arrays.equals(mac3(kmac, Arrays.copyOf(R,32)), Arrays.copyOfRange(R,32,40)));
+
+        byte[] seed = xor(K_IFD, K_IC);
+        KS_ENC = kdf(seed, 1);
+        KS_MAC = kdf(seed, 2);
+        SSC    = cat(Arrays.copyOfRange(RND_IC,4,8), Arrays.copyOfRange(RND_IFD,4,8));
+        System.out.println("KS_ENC: " + h(KS_ENC));
+        System.out.println("KS_MAC: " + h(KS_MAC));
+        System.out.println("SSC:    " + h(SSC));
+        System.out.println("BAC OK!");
+    }
+
+    // ================================================================
+    // PARSIRANJE
+    // ================================================================
+    static void parseEFCOM(byte[] d) {
+        System.out.println("  === EF.COM – Dostupni Data Groups ===");
+        parseTLV(d, "  ");
+    }
+    static void parseDG1(byte[] d) {
+        System.out.println("  === DG1 – MRZ podaci ===");
+        parseTLV(d, "  ");
+    }
+    static void parseSOD(byte[] d) {
+        System.out.println("  === EF.SOD – Security Object Document ===");
+        System.out.printf("  Veličina: %d bajta (ASN.1/CMS)%n", d.length);
+        saveFile(d, "ef_SOD.bin");
+        System.out.println("  Sačuvano: ef_SOD.bin");
+        // Ispiši OID-ove
+        for (int i=0; i<d.length-2; i++) {
+            if ((d[i]&0xFF)==0x06) {
+                int l=d[i+1]&0xFF;
+                if(l>0 && i+2+l<=d.length)
+                    System.out.println("  OID: "+oid(Arrays.copyOfRange(d,i+2,i+2+l)));
+            }
+        }
+    }
+    static void savePhoto(byte[] d, String pfx) {
+        int off=findB(d,new byte[]{(byte)0xFF,(byte)0xD8});
+        if(off>=0){saveFile(Arrays.copyOfRange(d,off,d.length),pfx+".jpg");System.out.println("  Sačuvano: "+pfx+".jpg");}
+        off=findB(d,new byte[]{(byte)0xFF,(byte)0x4F});
+        if(off<0) off=findB(d,new byte[]{0x00,0x00,0x00,0x0C,0x6A,0x50});
+        if(off>=0){saveFile(Arrays.copyOfRange(d,off,d.length),pfx+".jp2");System.out.println("  Sačuvano: "+pfx+".jp2");}
+    }
+
+    static void parseTLV(byte[] data, String ind) { doTLV(data,0,data.length,ind,0); }
+    static void doTLV(byte[] d, int s, int e, String ind, int depth) {
+        if (depth>8) return;
+        int i=s;
+        while(i<e) {
+            if((d[i]&0xFF)==0||(d[i]&0xFF)==0xFF){i++;continue;}
+            int tag=d[i++]&0xFF;
+            boolean con=(tag&0x20)!=0;
+            if((tag&0x1F)==0x1F&&i<e) tag=(tag<<8)|(d[i++]&0xFF);
+            if(i>=e) break;
+            int len=d[i++]&0xFF;
+            if(len==0x81&&i<e) len=d[i++]&0xFF;
+            else if(len==0x82&&i+1<e){len=((d[i]&0xFF)<<8)|(d[i+1]&0xFF);i+=2;}
+            if(i+len>e||len<0) break;
+            byte[] val=Arrays.copyOfRange(d,i,i+len); i+=len;
+            System.out.printf("%s%04X [%s] len=%d%n",ind,tag,tn(tag),len);
+            if(tag==0x5F1F){
+                String mrz=new String(val,StandardCharsets.UTF_8);
+                System.out.println(ind+"  MRZ: ["+mrz.replace("\n","↵")+"]");
+                mrzBox(mrz,ind+"  ");
+            } else if(tag==0x5C){
+                System.out.print(ind+"  DG-ovi:");
+                for(byte b:val) System.out.printf(" DG%d",dgN(b&0xFF));
+                System.out.println();
+            } else if(con) {
+                doTLV(d,i-len,i,ind+"  ",depth+1);
+            } else {
+                boolean pr=val.length>0;
+                for(byte b:val){int c=b&0xFF;if(c<0x20||c>0x7E){pr=false;break;}}
+                System.out.println(ind+"  = "+(pr?"\""+new String(val,StandardCharsets.UTF_8)+"\"":h(val)));
+            }
+        }
+    }
+    static void mrzBox(String mrz, String ind) {
+        mrz=mrz.replace("\n","").replace("\r","");
+        System.out.println(ind+"╔══════════════════════════════╗");
+        System.out.println(ind+"║   LIČNA KARTA BiH – PODACI   ║");
+        System.out.println(ind+"╠══════════════════════════════╣");
+        if(mrz.length()>=30){String l=mrz.substring(0,30);
+            System.out.println(ind+"║ Tip/Drž : "+pad(l.substring(0,5).replace("<",""),21)+"║");
+            System.out.println(ind+"║ Br.dok. : "+pad(l.substring(5,14).replace("<",""),21)+"║");
+        }
+        if(mrz.length()>=60){String l=mrz.substring(30,60);
+            System.out.println(ind+"║ Dat.rod : "+pad(fD(l.substring(0,6)),21)+"║");
+            System.out.println(ind+"║ Pol     : "+pad(l.substring(7,8).equals("M")?"Muški":"Ženski",21)+"║");
+            System.out.println(ind+"║ Dat.ist : "+pad(fD(l.substring(8,14)),21)+"║");
+            System.out.println(ind+"║ Nat.    : "+pad(l.substring(15,18).replace("<",""),21)+"║");
+        }
+        if(mrz.length()>=90){String l=mrz.substring(60,90);
+            String[] p=l.split("<<",2);
+            System.out.println(ind+"║ Prezime : "+pad(p[0].replace("<",""),21)+"║");
+            if(p.length>1) System.out.println(ind+"║ Ime     : "+pad(p[1].replace("<"," ").trim(),21)+"║");
+        }
+        System.out.println(ind+"╚══════════════════════════════╝");
+    }
+    static String fD(String s){if(s.length()!=6)return s;int y=Integer.parseInt(s.substring(0,2));return s.substring(4)+"."+s.substring(2,4)+"."+(y>30?"19":"20")+s.substring(0,2);}
+    static String pad(String s,int n){while(s.length()<n)s+=" ";return s;}
+    static int dgN(int b){if(b==0x60)return 0;if(b>=0x61&&b<=0x6F)return b-0x60;return b;}
+    static String tn(int t){switch(t){case 0x60:return"EF.COM";case 0x61:return"AppTemplate";case 0x5F01:return"LDS ver";case 0x5F36:return"Unicode ver";case 0x5C:return"DG lista";case 0x5F1F:return"MRZ";case 0x5F0E:return"Puno ime";case 0x5F0F:return"Prezime";case 0x5F10:return"Ime";case 0x5F11:return"Djev.prez";case 0x5F2B:return"Dat.rod";case 0x5F1D:return"JMBG";case 0x5F42:return"Adresa";case 0x5F43:return"Telefon";case 0x30:return"SEQUENCE";case 0x31:return"SET";case 0x06:return"OID";case 0x04:return"OctetStr";case 0x02:return"Integer";default:return String.format("?%04X",t);}}
+    static String oid(byte[] o){if(o.length==0)return"";StringBuilder sb=new StringBuilder();sb.append(o[0]/40).append('.').append(o[0]%40);long v=0;for(int i=1;i<o.length;i++){v=(v<<7)|(o[i]&0x7F);if((o[i]&0x80)==0){sb.append('.').append(v);v=0;}}return sb.toString();}
+
+    // ================================================================
+    // KRIPTOGRAFIJA
+    // ================================================================
+    // 3DES ECB (za IV = E(KSenc, SSC))
+    static byte[] tdes_ecb(byte[] k16, byte[] data8) throws Exception {
+        byte[] k24=cat(k16,Arrays.copyOf(k16,8));
+        Cipher c=Cipher.getInstance("DESede/ECB/NoPadding");
+        c.init(Cipher.ENCRYPT_MODE,SecretKeyFactory.getInstance("DESede").generateSecret(new DESedeKeySpec(k24)));
+        return c.doFinal(data8);
+    }
+    // 3DES CBC encrypt
+    static byte[] tdes_cbc(byte[] k16, byte[] iv, byte[] data) throws Exception {
+        byte[] k24=cat(k16,Arrays.copyOf(k16,8));
+        Cipher c=Cipher.getInstance("DESede/CBC/NoPadding");
+        c.init(Cipher.ENCRYPT_MODE,SecretKeyFactory.getInstance("DESede").generateSecret(new DESedeKeySpec(k24)),new IvParameterSpec(iv));
+        return c.doFinal(data);
+    }
+    // 3DES CBC decrypt
+    static byte[] tdes_cbc_dec(byte[] k16, byte[] iv, byte[] data) throws Exception {
+        byte[] k24=cat(k16,Arrays.copyOf(k16,8));
+        Cipher c=Cipher.getInstance("DESede/CBC/NoPadding");
+        c.init(Cipher.DECRYPT_MODE,SecretKeyFactory.getInstance("DESede").generateSecret(new DESedeKeySpec(k24)),new IvParameterSpec(iv));
+        return c.doFinal(data);
+    }
+    // ISO 9797-1 Retail MAC
+    static byte[] mac3(byte[] k16, byte[] data) throws Exception {
+        byte[] p=isopad(data),k1=Arrays.copyOf(k16,8),k2=Arrays.copyOfRange(k16,8,16),cv=new byte[8];
+        for(int i=0;i<p.length;i+=8) cv=des_e(k1,cv,Arrays.copyOfRange(p,i,i+8));
+        return Arrays.copyOf(des_e(k1,new byte[8],des_d(k2,new byte[8],cv)),8);
+    }
+    static byte[] des_e(byte[] k,byte[] iv,byte[] d) throws Exception{Cipher c=Cipher.getInstance("DES/CBC/NoPadding");c.init(Cipher.ENCRYPT_MODE,new SecretKeySpec(k,"DES"),new IvParameterSpec(iv));return c.doFinal(d);}
+    static byte[] des_d(byte[] k,byte[] iv,byte[] d) throws Exception{Cipher c=Cipher.getInstance("DES/CBC/NoPadding");c.init(Cipher.DECRYPT_MODE,new SecretKeySpec(k,"DES"),new IvParameterSpec(iv));return c.doFinal(d);}
+    // KDF: first 16 bytes of SHA-1(seed || 00 00 00 c), DES parity
+    static byte[] kdf(byte[] s,int c) throws Exception{
+        byte[] D=Arrays.copyOf(s,s.length+4);D[D.length-1]=(byte)c;
+        byte[] k=Arrays.copyOf(sha1(D),16);
+        for(int i=0;i<16;i++){int b=k[i]&0xFE;k[i]=(byte)(b|(Integer.bitCount(b)%2==0?1:0));}
+        return k;
+    }
+    static byte[] isopad(byte[] d){byte[] r=new byte[d.length+8-(d.length%8)];System.arraycopy(d,0,r,0,d.length);r[d.length]=(byte)0x80;return r;}
+    static byte[] isounpad(byte[] d){int i=d.length-1;while(i>=0&&d[i]==0)i--;return(i>=0&&(d[i]&0xFF)==0x80)?Arrays.copyOf(d,i):d;}
+    static void incSSC(){for(int i=SSC.length-1;i>=0;i--){if(++SSC[i]!=0)break;}}
+    static byte[] sha1(byte[] d) throws Exception{return MessageDigest.getInstance("SHA-1").digest(d);}
+    static byte[] xor(byte[] a,byte[] b){byte[] r=new byte[a.length];for(int i=0;i<a.length;i++)r[i]=(byte)(a[i]^b[i]);return r;}
+    static byte[] tlv(int tag,byte[] val){byte[] t=tag>0xFF?new byte[]{(byte)(tag>>8),(byte)(tag&0xFF)}:new byte[]{(byte)(tag&0xFF)};byte[] l=val.length<0x80?new byte[]{(byte)val.length}:val.length<0x100?new byte[]{(byte)0x81,(byte)val.length}:new byte[]{(byte)0x82,(byte)(val.length>>8),(byte)(val.length&0xFF)};return cat(t,l,val);}
+    static int cd(String s){int[]w={7,3,1};int sum=0;for(int i=0;i<s.length();i++){char c=s.charAt(i);int v=(c=='<')?0:(c>='A'&&c<='Z')?c-'A'+10:c-'0';sum+=v*w[i%3];}return sum%10;}
+
+    // ================================================================
+    // POMOĆNE METODE
+    // ================================================================
+    static ResponseAPDU send(CardChannel ch,String hex,String l) throws CardException{ResponseAPDU r=ch.transmit(new CommandAPDU(x(hex)));System.out.printf("%s SW=%04X%s%n",l,r.getSW(),r.getData().length>0?" data="+h(r.getData()):"");return r;}
+    static int findB(byte[] h,byte[] n){outer:for(int i=0;i<=h.length-n.length;i++){for(int j=0;j<n.length;j++)if(h[i+j]!=n[j])continue outer;return i;}return -1;}
+    static void saveFile(byte[] d,String n){try(FileOutputStream f=new FileOutputStream(n)){f.write(d);}catch(Exception e){System.out.println("Save: "+e);}}
+    static byte[] cat(byte[]...a){int n=0;for(byte[]x:a)if(x!=null)n+=x.length;byte[]r=new byte[n];int o=0;for(byte[]x:a)if(x!=null){System.arraycopy(x,0,r,o,x.length);o+=x.length;}return r;}
+    static String h(byte[] b){if(b==null||b.length==0)return"(empty)";StringBuilder s=new StringBuilder();for(byte x:b)s.append(String.format("%02X",x));return s.toString();}
+    static String sw(ResponseAPDU r){return String.format("%04X",r.getSW());}
+    static byte[] x(String s){s=s.replace(" ","");byte[]d=new byte[s.length()/2];for(int i=0;i<d.length;i++)d[i]=(byte)((Character.digit(s.charAt(i*2),16)<<4)+Character.digit(s.charAt(i*2+1),16));return d;}
+}
+
+
+
+
+
+
 ===========================================
   BiH eID Reader v9  |  ICAO eMRTD + BAC
 ===========================================
