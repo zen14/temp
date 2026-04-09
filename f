@@ -1,3 +1,108 @@
+
+import org.jmrtd.PassportService;
+import org.jmrtd.BACKey;
+import org.jmrtd.lds.icao.DG1File;
+import org.jmrtd.lds.icao.MRZInfo;
+
+import net.sf.scuba.smartcards.CardService;
+
+import javax.smartcardio.*;
+
+import java.util.List;
+
+public class BiHIdReader {
+
+    public static void main(String[] args) {
+
+        try {
+            // 1. Reader
+            TerminalFactory factory = TerminalFactory.getDefault();
+            List<CardTerminal> terminals = factory.terminals().list();
+
+            if (terminals.isEmpty()) {
+                System.out.println("❌ Nema readera");
+                return;
+            }
+
+            CardTerminal terminal = terminals.get(0);
+            System.out.println("📡 Reader: " + terminal.getName());
+
+            while (true) {
+
+                System.out.println("⏳ Čekam karticu...");
+                terminal.waitForCardPresent(0);
+
+                try {
+
+                    // 2. Connect (NFC/contactless automatski)
+                    Card card = terminal.connect("*");
+                    System.out.println("✅ Kartica detektovana");
+
+                    // 3. FIX: wrap Card → CardService (KLJUČNO)
+                    CardService cs = CardService.getInstance(card);
+
+                    // 4. PassportService (JMRTD)
+                    PassportService service =
+                            new PassportService(cs, 256, 224, false, false);
+
+                    service.open();
+                    System.out.println("🔓 Service otvoren");
+
+                    // 5. BAC (MOŽE FAIL - normalno za BiH kartice)
+                    try {
+                        BACKey bacKey = new BACKey(
+                                "C1234567<",   // dokument
+                                "900101",      // datum rođenja
+                                "300101"       // datum isteka
+                        );
+
+                        service.doBAC(bacKey);
+                        System.out.println("✅ BAC OK");
+
+                    } catch (Exception e) {
+                        System.out.println("⚠️ BAC nije uspio (normalno) → nastavljam bez njega");
+                    }
+
+                    // 6. Select applet
+                    service.sendSelectApplet(true);
+
+                    // 7. Čitanje DG1 (IME, PREZIME, BROJ)
+                    try {
+                        DG1File dg1 = new DG1File(
+                                service.getInputStream(PassportService.EF_DG1)
+                        );
+
+                        MRZInfo mrz = dg1.getMRZInfo();
+
+                        System.out.println("\n===== PODACI =====");
+                        System.out.println("Ime: " + mrz.getSecondaryIdentifier());
+                        System.out.println("Prezime: " + mrz.getPrimaryIdentifier());
+                        System.out.println("Broj dokumenta: " + mrz.getDocumentNumber());
+                        System.out.println("==================\n");
+
+                    } catch (Exception e) {
+                        System.out.println("❌ Ne mogu pročitati DG1: " + e.getMessage());
+                    }
+
+                    // 8. Disconnect
+                    card.disconnect(false);
+                    System.out.println("🔄 Kartica završena\n");
+
+                } catch (Exception e) {
+                    System.out.println("❌ Greška: " + e.getMessage());
+                }
+
+                terminal.waitForCardAbsent(0);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+
+
 import org.jmrtd.PassportService;
 import net.sf.scuba.smartcards.CardService;
 
